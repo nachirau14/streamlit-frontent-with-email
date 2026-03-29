@@ -183,7 +183,7 @@ def style_sector(val):
     return f"color: {GREY}"
 
 styled = (
-    dff.style
+    dff.reset_index(drop=True).style
     .format({
         "Qty":         lambda x: f"{x:,.0f}",
         "Price (₹)":   lambda x: f"₹{x:,.4f}" if x else "—",
@@ -199,7 +199,7 @@ styled = (
     .hide(axis="index")
 )
 
-st.dataframe(styled, use_container_width=True, height=520)
+st.dataframe(styled, use_container_width=True, height=520, hide_index=True)
 
 # ── Export — same format as sample_trades.csv ────────────────────────────────
 # Rebuild from filtered rows using canonical column order and names
