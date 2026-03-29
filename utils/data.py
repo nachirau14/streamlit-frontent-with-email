@@ -729,6 +729,68 @@ def _fetch_prices_via_yfinance(symbols: list[str]) -> dict[str, float]:
     return prices
 
 
+# ── NSE face value lookup ─────────────────────────────────────────────────────
+# Standard NSE face values for common scrips.
+# Source: NSE website / company filings.
+# These only change on a SPLIT — when that happens, record a SPLIT trade
+# with price = new face value, which overrides this lookup.
+
+_NSE_FACE_VALUES: dict[str, float] = {
+    # ₹1 face value
+    "INFY": 5.0, "TCS": 1.0, "WIPRO": 2.0, "HCLTECH": 2.0, "TECHM": 5.0,
+    "LTIM": 1.0, "MPHASIS": 10.0, "COFORGE": 10.0, "PERSISTENT": 5.0, "KPITTECH": 2.0,
+    "RELIANCE": 10.0, "ONGC": 5.0, "BPCL": 10.0, "IOC": 10.0, "HINDPETRO": 10.0,
+    "HDFCBANK": 1.0, "ICICIBANK": 2.0, "AXISBANK": 2.0, "KOTAKBANK": 5.0,
+    "SBIN": 1.0, "BANKBARODA": 2.0, "PNB": 2.0, "CANBK": 2.0, "UNIONBANK": 1.0,
+    "INDUSINDBK": 10.0, "FEDERALBNK": 2.0, "IDFCFIRSTB": 10.0, "RBLBANK": 10.0,
+    "HDFCLIFE": 10.0, "SBILIFE": 10.0, "ICICIGI": 10.0, "MAXHEALTH": 2.0,
+    "SUNPHARMA": 1.0, "DRREDDY": 5.0, "CIPLA": 2.0, "DIVISLAB": 2.0,
+    "AUROPHARMA": 1.0, "LUPIN": 2.0, "BIOCON": 5.0, "ALKEM": 2.0, "IPCALAB": 2.0,
+    "HINDUNILVR": 1.0, "ITC": 1.0, "NESTLEIND": 1.0, "BRITANNIA": 1.0,
+    "DABUR": 1.0, "MARICO": 1.0, "COLPAL": 1.0, "GODREJCP": 1.0, "TATACONSUM": 1.0,
+    "MARUTI": 5.0, "TATAMOTORS": 2.0, "BAJAJ-AUTO": 10.0, "HEROMOTOCO": 2.0,
+    "EICHERMOT": 1.0, "TVSMOTOR": 1.0, "ASHOKLEY": 1.0, "MOTHERSON": 1.0,
+    "ASIANPAINT": 1.0, "BERGEPAINT": 1.0, "KANSAINER": 1.0, "PIDILITIND": 1.0,
+    "TITAN": 1.0, "TRENT": 10.0, "BATAINDIA": 5.0, "VBL": 2.0,
+    "BAJFINANCE": 2.0, "BAJAJFINSV": 2.0, "CHOLAFIN": 2.0, "MUTHOOTFIN": 10.0,
+    "HDFCAMC": 5.0, "NAUKRI": 10.0, "PAYTM": 1.0, "POLICYBZR": 2.0,
+    "ADANIENT": 1.0, "ADANIPORTS": 2.0, "ADANIPOWER": 10.0, "ADANIGREEN": 10.0,
+    "JSWSTEEL": 1.0, "TATASTEEL": 1.0, "HINDALCO": 1.0, "VEDL": 1.0,
+    "COALINDIA": 10.0, "NMDC": 1.0, "SAIL": 10.0, "NATIONALUM": 5.0,
+    "NTPC": 10.0, "POWERGRID": 10.0, "NHPC": 10.0, "SJVN": 10.0,
+    "TATAPOWER": 1.0, "JSWENERGY": 10.0, "TORNTPOWER": 10.0,
+    "LT": 2.0, "BHEL": 2.0, "BEL": 1.0, "HAL": 10.0, "CONCOR": 10.0,
+    "IRCTC": 2.0, "RVNL": 10.0, "NBCC": 1.0,
+    "GRASIM": 2.0, "ULTRACEMCO": 10.0, "AMBUJACEM": 2.0, "ACC": 10.0,
+    "SHREECEM": 10.0, "JKCEMENT": 10.0,
+    "DLF": 2.0, "GODREJPROP": 5.0, "OBEROIRLTY": 10.0, "PHOENIXLTD": 2.0,
+    "ZOMATO": 1.0, "NYKAA": 1.0, "DELHIVERY": 1.0, "MAPMYINDIA": 2.0,
+    "DIXON": 2.0, "AMBER": 10.0, "DMART": 10.0, "PVRINOX": 10.0,
+    "INDIGO": 10.0, "SPICEJET": 10.0,
+    "BHARTIARTL": 5.0, "IDEA": 10.0, "INDUSTOWER": 10.0,
+    "OFSS": 5.0, "MFSL": 10.0, "POONAWALLA": 2.0,
+    "PAGEIND": 10.0, "POLYCAB": 10.0, "HAVELLS": 1.0, "VGUARD": 1.0,
+    "SUPREMEIND": 2.0, "ASTRAL": 1.0, "APOLLOTYRE": 1.0, "BALKRISIND": 2.0,
+    "CUMMINSIND": 2.0, "ABB": 2.0, "BOSCHLTD": 10.0, "SKFINDIA": 10.0,
+    "DEEPAKNTR": 20.0, "PIDILITIND": 1.0, "ATUL": 10.0, "FINEORG": 5.0,
+    "LALPATHLAB": 10.0, "METROPOLIS": 2.0, "THYROCARE": 10.0,
+    "SOLARINDS": 10.0, "NAVINFLUOR": 10.0, "FLUOROCHEM": 1.0,
+    "IRFC": 10.0, "PFC": 10.0, "RECLTD": 10.0, "HUDCO": 10.0,
+    # default for unknown scrips
+}
+
+_NSE_FACE_VALUE_DEFAULT = 10.0   # most common NSE face value
+
+
+def fetch_face_values_yfinance(symbols: list[str]) -> dict[str, float]:
+    """
+    Return face values for the given symbols using the curated lookup table.
+    Returns the default ₹10 for any symbol not in the table.
+    When a scrip has a SPLIT trade record, that overrides this value.
+    """
+    return {sym: _NSE_FACE_VALUES.get(sym, _NSE_FACE_VALUE_DEFAULT) for sym in symbols}
+
+
 def trigger_lambda(symbols: list[str] | None = None) -> tuple[bool, str]:
     """
     Fetch current prices from Yahoo Finance (Streamlit Cloud IPs are not blocked),

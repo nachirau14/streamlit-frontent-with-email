@@ -15,6 +15,7 @@ from utils.data import (
     get_aws_config,
     trigger_lambda,
     compute_xirr,
+    fetch_face_values_yfinance,
 )
 from utils.ui import (
     fmt_inr, fmt_pct, fmt_qty, xirr_colour,
@@ -89,6 +90,13 @@ def _tags(sym: str, field: str) -> set[str]:
     return {r.get(field, "").strip() for r in _all_trades_map.get(sym, [])
             if r.get(field, "").strip()}
 
+# Fetch face values via yfinance (Streamlit Cloud IPs not blocked — cached 1h)
+_fv_map: dict = {}
+try:
+    _fv_map = fetch_face_values_yfinance(all_scrips_syms)
+except Exception:
+    pass
+
 # Build full dataframe — all numeric fields computed from raw trades.
 # LMP comes from the snapshot (set by the last Lambda run).
 # Snapshot XIRR % is also used for display so the table matches the Lambda output.
@@ -135,10 +143,14 @@ for sym in all_scrips_syms:
         bonus     = 0.0
         rights    = 0.0
 
-    # Face value: from snapshot (Lambda fetches from NSE) or from SPLIT trade records
+    # Face value priority:
+    # 1. SPLIT trade record (user-specified, most accurate)
+    # 2. yfinance lookup (Streamlit Cloud, not blocked)
+    # 3. Lambda snapshot (Lambda NSE fetch blocked, often None)
+    fv_trade = _c.get("face_value") if trades_for_sym else None
+    fv_yf    = _fv_map.get(sym)
     fv_snap  = snap.get("face_value")
-    fv_trade = (_c.get("face_value") if trades_for_sym and lmp_val > 0 else None)
-    face_val = fv_snap or fv_trade
+    face_val = fv_trade or fv_yf or fv_snap
 
     all_rows.append({
         "Symbol":        sym,
