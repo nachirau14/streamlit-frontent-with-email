@@ -835,16 +835,39 @@ def _xirr_newton(cashflows: list[tuple[date, float]], guess: float = 0.1) -> flo
     t0 = dates[0]
 
     def _y(d):    return (d - t0).days / 365.0
-    def _npv(r):  return sum(a / (1 + r) ** _y(d) for d, a in zip(dates, amounts))
-    def _dnpv(r): return sum(-_y(d) * a / (1 + r) ** (_y(d) + 1) for d, a in zip(dates, amounts))
+
+    def _npv(r):
+        try:
+            return sum(a / (1 + r) ** _y(d) for d, a in zip(dates, amounts))
+        except (ZeroDivisionError, OverflowError):
+            return float("inf")
+
+    def _dnpv(r):
+        try:
+            return sum(-_y(d) * a / (1 + r) ** (_y(d) + 1) for d, a in zip(dates, amounts))
+        except (ZeroDivisionError, OverflowError):
+            return 0.0
 
     rate = guess
     for _ in range(1000):
+        # Guard: (1 + rate) must stay positive to avoid complex numbers
+        # from fractional exponentiation of negative base
+        if rate <= -1.0:
+            rate = -0.9
         npv, dnpv = _npv(rate), _dnpv(rate)
-        if abs(dnpv) < 1e-12: break
+        if abs(dnpv) < 1e-12:
+            break
         new_rate = rate - npv / dnpv
-        if abs(new_rate - rate) < 1e-8: return new_rate
+        # Clamp to avoid divergence below -1
+        new_rate = max(new_rate, -0.9999)
+        if abs(new_rate - rate) < 1e-8:
+            result = new_rate
+            # Final safety: return None if result is complex or non-finite
+            if isinstance(result, complex) or not (-1 < result < 100):
+                return None
+            return float(result)
         rate = new_rate
+
     return None
 
 
