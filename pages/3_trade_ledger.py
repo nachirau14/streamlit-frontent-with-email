@@ -201,12 +201,43 @@ styled = (
 
 st.dataframe(styled, use_container_width=True, height=520)
 
-# ── Export ────────────────────────────────────────────────────────────────────
+# ── Export — same format as sample_trades.csv ────────────────────────────────
+# Rebuild from filtered rows using canonical column order and names
+# so the downloaded file can be re-imported via load_trades.py or Bulk Upload.
+export_rows = []
+for symbol, trades in all_trades.items():
+    if dff["Symbol"].empty or symbol not in dff["Symbol"].values:
+        continue
+    # Only include trades that survived the filters
+    filtered_dates = set(
+        dff[dff["Symbol"] == symbol]["Date"].tolist()
+    )
+    for t in trades:
+        if t.get("trade_date", "") not in filtered_dates:
+            continue
+        export_rows.append({
+            "symbol":     symbol,
+            "trade_date": t.get("trade_date", ""),
+            "action":     t.get("action", "").upper(),
+            "qty":        float(t.get("qty", 0)),
+            "price":      float(t.get("price", 0)),
+            "charges":    float(t.get("charges", 0)),
+            "notes":      t.get("notes", ""),
+            "broker":     t.get("broker", ""),
+            "sector":     t.get("sector", ""),
+        })
+
+export_df = pd.DataFrame(export_rows, columns=[
+    "symbol", "trade_date", "action", "qty",
+    "price", "charges", "notes", "broker", "sector",
+]).sort_values(["trade_date", "symbol"], ascending=[False, True])
+
 st.download_button(
     "⬇️ Export CSV",
-    data=dff.to_csv(index=False),
+    data=export_df.to_csv(index=False),
     file_name=f"trade_ledger_{today}.csv",
     mime="text/csv",
+    help="Downloads in the same format as sample_trades.csv — can be re-imported via Bulk Upload.",
 )
 
 # ── Breakdown ─────────────────────────────────────────────────────────────────
