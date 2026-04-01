@@ -16,7 +16,7 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
     st.markdown("---")
-    if st.button("🔄 Refresh", use_container_width=True):
+    if st.button("🔄 Refresh", width='stretch'):
         st.cache_data.clear()
         st.rerun()
 
@@ -156,7 +156,7 @@ with st.form("email_config_form"):
     st.markdown("<div style='height:8px'/>", unsafe_allow_html=True)
 
     save_btn = st.form_submit_button(
-        "💾 Save settings", type="primary", use_container_width=True
+        "💾 Save settings", type="primary", width='stretch'
     )
 
 if save_btn:
@@ -248,7 +248,7 @@ st.markdown(
 
 test_col, _ = st.columns([1, 2])
 with test_col:
-    if st.button("📧 Send test email", use_container_width=True):
+    if st.button("📧 Send test email", width='stretch'):
         if not configured:
             st.error("SES sender not configured in secrets. Add `[email]` section first.")
         elif not fresh.get("to_address"):

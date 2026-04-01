@@ -139,7 +139,7 @@ delete_clicked = st.button(
     f"🗑️ Delete all {grand_total:,} records",
     type="primary",
     disabled=not confirmed,
-    use_container_width=True,
+    width='stretch',
 )
 
 # ── Delete both tables ────────────────────────────────────────────────────────

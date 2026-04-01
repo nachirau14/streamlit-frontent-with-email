@@ -20,7 +20,7 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
     st.markdown("---")
-    if st.button("🔄  Refresh", use_container_width=True):
+    if st.button("🔄  Refresh", width='stretch'):
         st.cache_data.clear()
         st.rerun()
 
@@ -192,52 +192,40 @@ styled = (
         "Broker":      lambda x: x if x else "—",
         "Sector":      lambda x: x if x else "—",
     })
-    .applymap(style_action, subset=["Action"])
-    .applymap(style_net,    subset=["Net (₹)"])
-    .applymap(style_broker, subset=["Broker"])
-    .applymap(style_sector, subset=["Sector"])
+    .map(style_action, subset=["Action"])
+    .map(style_net,    subset=["Net (₹)"])
+    .map(style_broker, subset=["Broker"])
+    .map(style_sector, subset=["Sector"])
     .hide(axis="index")
 )
 
-st.dataframe(styled, use_container_width=True, height=520, hide_index=True)
+st.dataframe(styled, width='stretch', height=520, hide_index=True)
 
 # ── Export — same format as sample_trades.csv ────────────────────────────────
-# Rebuild from filtered rows using canonical column order and names
-# so the downloaded file can be re-imported via load_trades.py or Bulk Upload.
-export_rows = []
-for symbol, trades in all_trades.items():
-    if dff["Symbol"].empty or symbol not in dff["Symbol"].values:
-        continue
-    # Only include trades that survived the filters
-    filtered_dates = set(
-        dff[dff["Symbol"] == symbol]["Date"].tolist()
-    )
-    for t in trades:
-        if t.get("trade_date", "") not in filtered_dates:
-            continue
-        export_rows.append({
-            "symbol":     symbol,
-            "trade_date": t.get("trade_date", ""),
-            "action":     t.get("action", "").upper(),
-            "qty":        float(t.get("qty", 0)),
-            "price":      float(t.get("price", 0)),
-            "charges":    float(t.get("charges", 0)),
-            "notes":      t.get("notes", ""),
-            "broker":     t.get("broker", ""),
-            "sector":     t.get("sector", ""),
-        })
-
-export_df = pd.DataFrame(export_rows, columns=[
-    "symbol", "trade_date", "action", "qty",
-    "price", "charges", "notes", "broker", "sector",
-]).sort_values(["trade_date", "symbol"], ascending=[False, True])
+# Rename dff display columns directly to match sample_trades.csv format.
+# Operates on the already-filtered dff so filters are respected exactly.
+export_df = (
+    dff[["Symbol","Date","Action","Qty","Price (₹)","Charges (₹)","Notes","Broker","Sector"]]
+    .rename(columns={
+        "Symbol":         "symbol",
+        "Date":           "trade_date",
+        "Action":         "action",
+        "Qty":            "qty",
+        "Price (₹)":     "price",
+        "Charges (₹)":  "charges",
+        "Notes":          "notes",
+        "Broker":         "broker",
+        "Sector":         "sector",
+    })
+    .sort_values(["trade_date","symbol"], ascending=[False, True])
+)
 
 st.download_button(
     "⬇️ Export CSV",
     data=export_df.to_csv(index=False),
     file_name=f"trade_ledger_{today}.csv",
     mime="text/csv",
-    help="Downloads in the same format as sample_trades.csv — can be re-imported via Bulk Upload.",
+    help="Downloads in sample_trades.csv format — re-importable via Bulk Upload.",
 )
 
 # ── Breakdown ─────────────────────────────────────────────────────────────────
@@ -256,9 +244,9 @@ with bc1:
     st.dataframe(
         agg.style
         .format({"Value": lambda x: fmt_inr(x)})
-        .applymap(style_action, subset=["Action"])
+        .map(style_action, subset=["Action"])
         .hide(axis="index"),
-        use_container_width=True, height=220,
+        width='stretch', height=220,
     )
 
 with bc2:
@@ -276,9 +264,9 @@ with bc2:
         st.dataframe(
             agg_b.style
             .format({"Value": lambda x: fmt_inr(x)})
-            .applymap(style_broker, subset=["Broker"])
+            .map(style_broker, subset=["Broker"])
             .hide(axis="index"),
-            use_container_width=True, height=220,
+            width='stretch', height=220,
         )
     else:
         st.info("No broker tags on any records yet.")

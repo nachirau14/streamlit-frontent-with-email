@@ -101,7 +101,7 @@ def _show_login_form() -> None:
     with st.form("login_form", clear_on_submit=True):
         username = st.text_input("Username", placeholder="Enter username")
         password = st.text_input("Password", type="password", placeholder="Enter password")
-        submitted = st.form_submit_button("Sign in", use_container_width=True, type="primary")
+        submitted = st.form_submit_button("Sign in", width='stretch', type="primary")
 
     if submitted:
         if username.strip() == expected_user and _verify(password, expected_hash):

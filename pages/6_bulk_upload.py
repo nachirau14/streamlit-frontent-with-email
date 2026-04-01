@@ -244,10 +244,10 @@ styled = (
         "Price (Rs)": lambda x: f"Rs.{x:,.4f}",
         "Charges":    lambda x: f"Rs.{x:,.2f}" if x else "-",
     })
-    .applymap(_style_action, subset=["Action"])
+    .map(_style_action, subset=["Action"])
     .hide(axis="index")
 )
-st.dataframe(styled, use_container_width=True, height=min(400, 60 + len(rows) * 35))
+st.dataframe(styled, width='stretch', height=min(400, 60 + len(rows) * 35))
 
 
 # ── Scrip breakdown ───────────────────────────────────────────────────────────
@@ -265,7 +265,7 @@ with st.expander("📊 Breakdown by scrip"):
             "BONUS":    acts.get("BONUS", 0),
             "RIGHTS":   acts.get("RIGHTS", 0),
         })
-    st.dataframe(pd.DataFrame(scrip_rows).set_index("Symbol"), use_container_width=True)
+    st.dataframe(pd.DataFrame(scrip_rows).set_index("Symbol"), width='stretch')
 
 
 # ── Upload confirmation ───────────────────────────────────────────────────────
@@ -290,7 +290,7 @@ with col_btn:
     upload_clicked = st.button(
         f"📤 Upload {len(rows)} records",
         type="primary",
-        use_container_width=True,
+        width='stretch',
     )
 
 if upload_clicked:

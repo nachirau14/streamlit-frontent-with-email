@@ -21,7 +21,7 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
     st.markdown("---")
-    if st.button("🔄 Refresh", use_container_width=True):
+    if st.button("🔄 Refresh", width='stretch'):
         st.cache_data.clear()
         st.rerun()
 
@@ -77,7 +77,7 @@ if broker_configs:
             "Rights Min (₹)": "₹{:.0f}",
         })
         .hide(axis="index"),
-        use_container_width=True,
+        width='stretch',
         height=min(320, 60 + len(rows) * 36),
     )
 else:
@@ -194,7 +194,7 @@ with st.form("broker_config_form"):
 
     st.markdown("<div style='height:4px'/>", unsafe_allow_html=True)
     save_btn = st.form_submit_button(
-        "💾 Save broker config", type="primary", use_container_width=True
+        "💾 Save broker config", type="primary", width='stretch'
     )
 
 if save_btn:
@@ -237,7 +237,7 @@ if broker_configs:
         )
     with btn_col:
         st.markdown("<div style='height:26px'/>", unsafe_allow_html=True)
-        if st.button("🗑️ Delete", use_container_width=True):
+        if st.button("🗑️ Delete", width='stretch'):
             try:
                 delete_broker_config(del_choice)
                 st.success(f"Broker `{del_choice}` deleted.")

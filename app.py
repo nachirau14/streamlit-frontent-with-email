@@ -75,7 +75,7 @@ with st.sidebar:
 
     st.markdown("---")
 
-    if st.button("🔄  Refresh Data", use_container_width=True):
+    if st.button("🔄  Refresh Data", width='stretch'):
         st.cache_data.clear()
         st.rerun()
 
@@ -87,7 +87,7 @@ with st.sidebar:
         f'Signed in as<br><strong style="color:#FAFAFA">{current_user()}</strong></div>',
         unsafe_allow_html=True,
     )
-    if col_o.button("Sign out", use_container_width=True):
+    if col_o.button("Sign out", width='stretch'):
         logout()
 
     st.markdown(

@@ -21,7 +21,7 @@ from utils.ui import (
 with st.sidebar:
     st.markdown('<div style="font-size:1.3rem;font-weight:800;color:#00A88A;padding:16px 0 24px">📈 XIRR Tracker</div>', unsafe_allow_html=True)
     st.markdown("---")
-    if st.button("🔄  Refresh", use_container_width=True):
+    if st.button("🔄  Refresh", width='stretch'):
         st.cache_data.clear(); st.rerun()
 
 
@@ -134,7 +134,7 @@ with tab1:
             showlegend=False, xaxis_title="XIRR %", yaxis_title="",
             margin=dict(l=8, r=40, t=8, b=8),
         )
-        st.plotly_chart(fig_top, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig_top, width='stretch', config={"displayModeBar": False})
 
     with col_bot:
         st.markdown(f"**🔴 Bottom {top_n // 2} Performers**")
@@ -155,7 +155,7 @@ with tab1:
             showlegend=False, xaxis_title="XIRR %", yaxis_title="",
             margin=dict(l=8, r=40, t=8, b=8),
         )
-        st.plotly_chart(fig_bot, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig_bot, width='stretch', config={"displayModeBar": False})
 
     # Full ranked table
     section_header("Full Rankings Table")
@@ -179,9 +179,9 @@ with tab1:
             "holdings_qty":   lambda x: fmt_qty(x) if x is not None else "—",
             "lmp":            lambda x: f"₹{x:,.2f}",
         })
-        .applymap(colour_xirr_cell, subset=["xirr_pct"])
+        .map(colour_xirr_cell, subset=["xirr_pct"])
         .hide(axis="index"),
-        use_container_width=True, height=420,
+        width='stretch', height=420,
     )
 
 
@@ -196,7 +196,7 @@ with tab2:
     if not fig_scatter.data:
         st.info("No data available for scatter chart.")
     else:
-        st.plotly_chart(fig_scatter, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig_scatter, width='stretch', config={"displayModeBar": False})
 
     # Holding period buckets
     section_header("Holdings by Tenure Bucket")
@@ -259,7 +259,7 @@ with tab2:
             title=dict(text="Average XIRR by Holding Period Bucket", font=dict(size=14)),
             yaxis_title="Avg XIRR %",
         )
-        st.plotly_chart(fig_bucket, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig_bucket, width='stretch', config={"displayModeBar": False})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -319,7 +319,7 @@ with tab3:
             title=dict(text="Annual Dividend Income", font=dict(size=14)),
             yaxis_title="₹",
         )
-        st.plotly_chart(fig_ann, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig_ann, width='stretch', config={"displayModeBar": False})
 
         # Per-scrip breakdown
         scrip_div = (
@@ -339,7 +339,7 @@ with tab3:
             title=dict(text="Dividends by Scrip", font=dict(size=14)),
             yaxis_title="₹",
         )
-        st.plotly_chart(fig_scrip, use_container_width=True, config={"displayModeBar": False})
+        st.plotly_chart(fig_scrip, width='stretch', config={"displayModeBar": False})
 
         # Full table
         section_header("Dividend Log")
@@ -351,7 +351,7 @@ with tab3:
                 "Total (₹)": lambda x: f"₹{x:,.2f}",
             })
             .hide(axis="index"),
-            use_container_width=True, height=360,
+            width='stretch', height=360,
         )
 
         st.download_button(
@@ -402,7 +402,7 @@ with tab4:
         showlegend=False, xaxis_title="Unrealised P&L (₹)", yaxis_title="",
         margin=dict(l=8, r=60, t=40, b=8),
     )
-    st.plotly_chart(fig_pnl, use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(fig_pnl, width='stretch', config={"displayModeBar": False})
 
     # Value concentration
     section_header("Portfolio Concentration", "Share of total current value")
@@ -424,4 +424,4 @@ with tab4:
         title=dict(text="Top 15 Holdings by Value", font=dict(size=14)),
         showlegend=False,
     )
-    st.plotly_chart(fig_pie, use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(fig_pie, width='stretch', config={"displayModeBar": False})

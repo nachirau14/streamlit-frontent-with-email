@@ -29,6 +29,48 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
+# ── Curated NSE ticker list for symbol suggestions ────────────────────────────
+_NSE_TICKERS = sorted(set([
+    "ADANIENT","ADANIPORTS","APOLLOHOSP","ASIANPAINT","AXISBANK",
+    "BAJAJ-AUTO","BAJFINANCE","BAJAJFINSV","BPCL","BHARTIARTL",
+    "BRITANNIA","CIPLA","COALINDIA","DIVISLAB","DRREDDY",
+    "EICHERMOT","GRASIM","HCLTECH","HDFCBANK","HDFCLIFE",
+    "HEROMOTOCO","HINDALCO","HINDUNILVR","ICICIBANK","ITC",
+    "INDUSINDBK","INFY","JSWSTEEL","KOTAKBANK","LTIM",
+    "LT","M&M","MARUTI","NESTLEIND","NTPC",
+    "ONGC","POWERGRID","RELIANCE","SBILIFE","SHRIRAMFIN",
+    "SBIN","SUNPHARMA","TCS","TATACONSUM","TATAMOTORS",
+    "TATASTEEL","TECHM","TITAN","ULTRACEMCO","WIPRO",
+    "ABB","ADANIGREEN","ADANIPOWER","AMBUJACEM","APOLLOTYRE",
+    "ASHOKLEY","ASTRAL","AUBANK","AUROPHARMA","BALKRISIND",
+    "BANDHANBNK","BANKBARODA","BATAINDIA","BERGEPAINT","BIOCON",
+    "BOSCHLTD","CANBK","CHOLAFIN","COFORGE","COLPAL",
+    "CONCOR","CUMMINSIND","DABUR","DEEPAKNTR","DELHIVERY",
+    "DIXON","DLF","DMART","ESCORTS","FEDERALBNK",
+    "GAIL","GODREJCP","GODREJPROP","GRANULES","GUJGASLTD",
+    "HAL","HAVELLS","HINDPETRO","ICICIGI","IDFCFIRSTB",
+    "IEX","INDHOTEL","INDIANB","INDIGO","INDUSTOWER",
+    "IOC","IRCTC","JSWENERGY","JUBLFOOD","KANSAINER",
+    "LALPATHLAB","LICHSGFIN","LUPIN","MARICO","MAXHEALTH",
+    "MFSL","MOTHERSON","MPHASIS","MRF","MUTHOOTFIN",
+    "NAUKRI","NAVINFLUOR","NMDC","OBEROIRLTY","OFSS",
+    "PAGEIND","PERSISTENT","PETRONET","PHOENIXLTD","PIDILITIND",
+    "PIIND","PNB","POLYCAB","POONAWALLA","PVRINOX",
+    "RBLBANK","RECLTD","SAIL","SOLARINDS","STARHEALTH",
+    "SUPREMEIND","SUZLON","TATACOMM","TATAPOWER","TRENT",
+    "TVSMOTOR","UBL","UNIONBANK","UPL","VEDL",
+    "VOLTAS","YESBANK","ZOMATO","ZYDUSLIFE",
+    "BEL","BHEL","NBCC","NHPC","NLC","PFC","RVNL","SJVN",
+    "UCOBANK","IOB","MAHABANK","CENTRALBK","TRIDENT",
+    "ALKEM","ATUL","FINEORG","FLUOROCHEM","HAPPSTMNDS",
+    "HONAUT","IPCALAB","KAJARIACER","KPITTECH","LAURUSLABS",
+    "LTTS","METROPOLIS","NIACL","RADICO","RATEGAIN",
+    "ROUTE","SKFINDIA","SONACOMS","SUNDRMFAST","TANLA",
+    "TORNTPHARM","TORNTPOWER","VGUARD","VMART","WESTLIFE",
+    "ZEEL","HFCL","MINDA","HDFCAMC","LICI","JSWINFRA",
+    "ATGL","CGPOWER","NHPC","COCHINSHIP","GRSE","MIDHANI",
+]))
+
 ACTION_META = {
     "BUY":      {"icon": "🟢", "colour": TEAL,    "desc": "Purchase of shares",
                  "price_label": "Price per share (Rs.)", "qty_label": "Shares bought",
@@ -72,10 +114,19 @@ with tab_add:
     broker_options = ["(none)"] + [c.get("broker_name", c.get("broker_key", "")) for c in broker_configs]
     broker_key_map = {c.get("broker_name", c.get("broker_key", "")): c.get("broker_key", "") for c in broker_configs}
 
+    if not broker_configs:
+        st.info(
+            "No brokers configured yet — charges won't be auto-calculated. "
+            "Add brokers in the **🏦 Manage Brokers** tab above, or on the **Broker Config** page.",
+            icon="ℹ️",
+        )
+
     try:
-        known_symbols = sorted(load_all_trades().keys())
+        trade_symbols = set(load_all_trades().keys())
     except Exception:
-        known_symbols = []
+        trade_symbols = set()
+    # Merge user's own scrips with the curated NSE ticker list
+    known_symbols = sorted(trade_symbols | set(_NSE_TICKERS))
 
     st.markdown("#### 1 — Select action type")
     act_cols = st.columns(8)
@@ -83,7 +134,7 @@ with tab_add:
     for i, (action, meta) in enumerate(ACTION_META.items()):
         with act_cols[i]:
             if st.button(f"{meta['icon']} **{action}**\n\n{meta['desc']}",
-                         key=f"action_btn_{action}", use_container_width=True,
+                         key=f"action_btn_{action}", width='stretch',
                          type="primary" if selected_action == action else "secondary"):
                 st.session_state["selected_action"] = action
                 st.rerun()
@@ -122,17 +173,23 @@ with tab_add:
             help="Tag with NSE sector for sector-level XIRR analysis.",
         )
 
-    with st.form("add_trade_form", clear_on_submit=True):
-        c1, c2 = st.columns(2)
-        with c1:
-            symbol_input = st.text_input("NSE Symbol *", placeholder="e.g. RELIANCE")
-            if known_symbols and symbol_input:
-                matching = [s for s in known_symbols if symbol_input.upper() in s]
-                if matching and symbol_input.upper() not in known_symbols:
-                    st.caption(f"Did you mean: {', '.join(matching[:5])}")
-        with c2:
-            trade_date = st.date_input("Trade / Ex-Date *", value=date.today(), max_value=date.today())
+    # Symbol + date selectors outside form so symbol filters as user types
+    sym_col, date_col = st.columns(2)
+    with sym_col:
+        symbol_input = st.selectbox(
+            "NSE Symbol *",
+            options=[""] + known_symbols,
+            index=0,
+            key="symbol_selectbox",
+            help="Type to search — includes your existing scrips and 200+ common NSE tickers.",
+            placeholder="Type to search…",
+        )
+    with date_col:
+        trade_date = st.date_input(
+            "Trade / Ex-Date *", value=date.today(), max_value=date.today()
+        )
 
+    with st.form("add_trade_form", clear_on_submit=True):
         c3, c4 = st.columns(2)
         with c3:
             qty = st.number_input(meta["qty_label"] + " *", min_value=0.0, value=0.0, step=1.0, format="%.2f")
@@ -218,7 +275,7 @@ with tab_add:
             ''', unsafe_allow_html=True)
 
         submitted = st.form_submit_button(f"{meta['icon']} Submit {action}",
-                                          type="primary", use_container_width=True)
+                                          type="primary", width='stretch')
 
     if submitted:
         errs = []
@@ -299,7 +356,7 @@ with tab_brokers:
                 "Sell Min (Rs.)":   "Rs.{:.0f}",
                 "Rights Min (Rs.)": "Rs.{:.0f}",
             }).hide(axis="index"),
-            use_container_width=True, height=min(300, 60 + len(rows) * 35),
+            width='stretch', height=min(300, 60 + len(rows) * 35),
         )
 
     section_header("Add / Edit Broker")
@@ -347,7 +404,7 @@ with tab_brokers:
             rights_min = st.number_input("Min (Rs.)", min_value=0.0, value=float(edit_cfg.get("rights_min", 20.0)),
                                           step=1.0, format="%.0f", key="rights_min")
 
-        save_clicked = st.form_submit_button("Save broker config", type="primary", use_container_width=True)
+        save_clicked = st.form_submit_button("Save broker config", type="primary", width='stretch')
 
     if save_clicked:
         fk = b_key if edit_choice == "-- Add new --" else edit_choice
@@ -372,7 +429,7 @@ with tab_brokers:
             del_choice = st.selectbox("Select broker", existing_keys, label_visibility="collapsed")
         with bc:
             st.markdown("<div style='height:26px'/>", unsafe_allow_html=True)
-            if st.button("Delete", type="primary", use_container_width=True):
+            if st.button("Delete", type="primary", width='stretch'):
                 try:
                     delete_broker_config(del_choice)
                     st.success(f"Broker `{del_choice}` deleted.")

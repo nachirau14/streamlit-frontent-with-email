@@ -23,7 +23,7 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
     st.markdown("---")
-    if st.button("🔄 Refresh", use_container_width=True):
+    if st.button("🔄 Refresh", width='stretch'):
         st.cache_data.clear()
         st.rerun()
 
@@ -120,10 +120,10 @@ styled = (
         "Price":   lambda x: f"Rs.{x:,.4f}",
         "Charges": lambda x: f"Rs.{x:,.2f}" if x else "-",
     })
-    .applymap(_style_action, subset=["Action"])
+    .map(_style_action, subset=["Action"])
     .hide(axis="index")
 )
-st.dataframe(styled, use_container_width=True, height=min(380, 60 + len(rows) * 35))
+st.dataframe(styled, width='stretch', height=min(380, 60 + len(rows) * 35))
 
 
 # ── Record picker ─────────────────────────────────────────────────────────────
@@ -260,7 +260,7 @@ with tab_edit:
         save_clicked = st.form_submit_button(
             "💾 Save changes",
             type="primary",
-            use_container_width=True,
+            width='stretch',
             disabled=(not changes),
         )
 
@@ -311,7 +311,7 @@ with tab_delete:
         f"🗑️ Delete this record",
         type="primary",
         disabled=(confirm_input.strip().upper() != selected_symbol),
-        use_container_width=False,
+        width='content',
     )
 
     if confirm_input and confirm_input.strip().upper() != selected_symbol:

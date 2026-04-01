@@ -346,7 +346,7 @@ with btn_col:
         if is_filtered else
         "Recalculates XIRR for all scrips in the portfolio."
     )
-    if st.button(recalc_label, type="primary", use_container_width=True, help=recalc_help):
+    if st.button(recalc_label, type="primary", width='stretch', help=recalc_help):
         with st.spinner(
             f"Fetching prices and recalculating {f_count} scrips…"
             if is_filtered else "Fetching prices and recalculating all scrips…"
@@ -387,7 +387,7 @@ with left:
     )
     section_header(treemap_title, "Sized by current value · Colour = XIRR")
     fig_tree = portfolio_treemap(filtered_snaps)
-    st.plotly_chart(fig_tree, use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(fig_tree, width='stretch', config={"displayModeBar": False})
 
 with right:
     section_header("Portfolio XIRR Trend", "Last 90 daily snapshots")
@@ -395,7 +395,7 @@ with right:
     if hist:
         st.plotly_chart(
             xirr_history_chart(hist, "Portfolio XIRR %"),
-            use_container_width=True,
+            width='stretch',
             config={"displayModeBar": False},
         )
     else:
@@ -430,12 +430,12 @@ styled = (
         "Realised":      lambda x: fmt_inr(x),
         "Face Value (₹)": lambda x: f"₹{x:,.2f}" if x else "—",
     })
-    .applymap(colour_xirr, subset=["XIRR %"])
+    .map(colour_xirr, subset=["XIRR %"])
     .set_properties(**{"background-color": CARD_BG, "border-color": BORDER})
     .hide(axis="index")
 )
 
-st.dataframe(styled, use_container_width=True, height=420)
+st.dataframe(styled, width='stretch', height=420)
 
 # Download
 csv = display_df.to_csv(index=False)

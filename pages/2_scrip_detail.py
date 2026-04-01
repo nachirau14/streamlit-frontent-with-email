@@ -24,7 +24,7 @@ from utils.ui import (
 with st.sidebar:
     st.markdown('<div style="font-size:1.3rem;font-weight:800;color:#00A88A;padding:16px 0 24px">📈 XIRR Tracker</div>', unsafe_allow_html=True)
     st.markdown("---")
-    if st.button("🔄  Refresh", use_container_width=True):
+    if st.button("🔄  Refresh", width='stretch'):
         st.cache_data.clear(); st.rerun()
 
 
@@ -154,7 +154,7 @@ with left:
     section_header("XIRR History", "Daily snapshots · last 90 days")
     if history:
         st.plotly_chart(xirr_history_chart(history, f"{selected} XIRR %"),
-                        use_container_width=True, config={"displayModeBar": False})
+                        width='stretch', config={"displayModeBar": False})
     else:
         st.info("No history yet — builds up daily after Lambda runs.")
 
@@ -162,7 +162,7 @@ with right:
     section_header("Cash Flow Breakdown")
     if snapshot:
         st.plotly_chart(waterfall_chart(snapshot),
-                        use_container_width=True, config={"displayModeBar": False})
+                        width='stretch', config={"displayModeBar": False})
 
 
 # ── Cumulative cost basis chart ───────────────────────────────────────────────
@@ -246,7 +246,7 @@ if trades:
         yaxis_title="₹",
         legend=dict(orientation="h", y=-0.2),
     )
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
 
 
 # ── Trade ledger for this scrip ───────────────────────────────────────────────
@@ -284,12 +284,12 @@ if trades:
             "Broker":      lambda x: x if x else "—",
             "Sector":      lambda x: x if x else "—",
         })
-        .applymap(style_action,    subset=["Action"])
-        .applymap(style_broker_sec, subset=["Broker"])
-        .applymap(style_sector_col, subset=["Sector"])
+        .map(style_action,    subset=["Action"])
+        .map(style_broker_sec, subset=["Broker"])
+        .map(style_sector_col, subset=["Sector"])
         .hide(axis="index")
     )
-    st.dataframe(styled_trades, use_container_width=True, height=320)
+    st.dataframe(styled_trades, width='stretch', height=320)
 else:
     st.info("No transactions found for this scrip.")
 
