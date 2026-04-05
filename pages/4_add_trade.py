@@ -30,6 +30,57 @@ with st.sidebar:
     )
 
 # ── Curated NSE ticker list for symbol suggestions ────────────────────────────
+def _validate_symbol_nse(symbol: str) -> tuple[bool, str]:
+    """
+    Validate a ticker symbol against NSE (primary) then BSE (fallback).
+    Returns (is_valid, message).
+    Runs from Streamlit Cloud IPs which are not blocked by NSE.
+    """
+    import requests as _req
+
+    # NSE quote endpoint
+    try:
+        nse_url  = f"https://www.nseindia.com/api/quote-equity?symbol={symbol}"
+        headers  = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            ),
+            "Accept":   "application/json",
+            "Referer":  "https://www.nseindia.com/",
+        }
+        # Need a session with cookies for NSE API
+        session = _req.Session()
+        session.get("https://www.nseindia.com", headers=headers, timeout=5)
+        resp = session.get(nse_url, headers=headers, timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            name = data.get("info", {}).get("companyName", symbol)
+            ltp  = data.get("priceInfo", {}).get("lastPrice")
+            ltp_str = f" · LTP: ₹{ltp:,.2f}" if ltp else ""
+            return True, f"{symbol} — {name}{ltp_str} (NSE)"
+    except Exception:
+        pass
+
+    # BSE fallback via yfinance
+    try:
+        import yfinance as yf
+        ticker = yf.Ticker(f"{symbol}.NS")
+        info   = ticker.fast_info
+        ltp    = getattr(info, "last_price", None)
+        if ltp and float(ltp) > 0:
+            name = ticker.info.get("longName", symbol)
+            return True, f"{symbol} — {name} · LTP: ₹{float(ltp):,.2f} (via Yahoo)"
+    except Exception:
+        pass
+
+    return False, (
+        f"'{symbol}' not found on NSE or BSE. "
+        "Check spelling — use the exact NSE ticker (e.g. HDFCBANK not HDFC-BANK)."
+    )
+
+
 _NSE_TICKERS = sorted(set([
     "ADANIENT","ADANIPORTS","APOLLOHOSP","ASIANPAINT","AXISBANK",
     "BAJAJ-AUTO","BAJFINANCE","BAJAJFINSV","BPCL","BHARTIARTL",
@@ -173,17 +224,37 @@ with tab_add:
             help="Tag with NSE sector for sector-level XIRR analysis.",
         )
 
-    # Symbol + date selectors outside form so symbol filters as user types
+    # Symbol text input + NSE/BSE validation
     sym_col, date_col = st.columns(2)
     with sym_col:
-        symbol_input = st.selectbox(
+        symbol_input = st.text_input(
             "NSE Symbol *",
-            options=[""] + known_symbols,
-            index=0,
-            key="symbol_selectbox",
-            help="Type to search — includes your existing scrips and 200+ common NSE tickers.",
-            placeholder="Type to search…",
+            placeholder="e.g. RELIANCE, HDFCBANK, INFY",
+            key="symbol_text_input",
+            help="Enter the exact NSE ticker. Click Validate to check before submitting.",
         )
+        sym_upper = symbol_input.strip().upper() if symbol_input else ""
+
+        # Validate button — calls NSE API to confirm the ticker exists
+        if sym_upper:
+            vcol1, vcol2 = st.columns([1, 3])
+            with vcol1:
+                do_validate = st.button("🔍 Validate", key="validate_btn", width='content')
+            if do_validate:
+                with st.spinner(f"Checking {sym_upper} on NSE/BSE…"):
+                    valid, info = _validate_symbol_nse(sym_upper)
+                if valid:
+                    st.success(f"✅ {info}")
+                    st.session_state["sym_validated"] = sym_upper
+                else:
+                    st.error(f"⚠️ {info}")
+                    st.session_state["sym_validated"] = None
+            elif st.session_state.get("sym_validated") == sym_upper:
+                st.caption(f"✅ {sym_upper} validated")
+            elif st.session_state.get("sym_validated") and st.session_state.get("sym_validated") != sym_upper:
+                # Symbol changed after validation — clear it
+                st.session_state["sym_validated"] = None
+
     with date_col:
         trade_date = st.date_input(
             "Trade / Ex-Date *", value=date.today(), max_value=date.today()

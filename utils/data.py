@@ -1013,6 +1013,14 @@ def compute_xirr(trades: list[dict], lmp: float, as_of_str: str) -> dict:
                 totals["face_value"] = price
 
         elif action == "MERGER":
+            # If price > 0, it represents the acquisition cost per share received
+            # e.g. a cash merger where you receive Rs.X per share held.
+            # If price = 0, it's a pure share-swap (no cash outflow here;
+            # record a BUY in the acquirer at price=0 for the shares received).
+            if price > 0:
+                outflow = holdings * price   # total acquisition value
+                cashflows.append((d, outflow))   # inflow — you received cash
+                totals["total_realised"] += outflow
             holdings = 0.0
             merged   = True
 
