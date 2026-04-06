@@ -34,27 +34,35 @@ def _ticker_table():
     return _get_ddb().Table(name)
 
 
-@st.cache_data(ttl=300, show_spinner=False)
 def search_tickers(prefix: str, limit: int = 12) -> list[dict]:
     """
     Search the ticker master table for symbols starting with `prefix`.
     Returns list of {symbol, company_name, exchange, face_value, isin}.
-    Results are cached for 5 minutes.
+    Not cached here — caller caches via session_state if needed.
     """
     prefix = prefix.strip().upper()
-    if not prefix or len(prefix) < 1:
+    if not prefix:
         return []
     try:
-        tbl  = _ticker_table()
+        # Get raw boto3 resource directly — avoids caching unpicklable objects
+        cfg = get_aws_config()
+        ddb = boto3.resource(
+            "dynamodb",
+            region_name=cfg["region"],
+            aws_access_key_id=cfg["access_key_id"],
+            aws_secret_access_key=cfg["secret_access_key"],
+        )
+        tbl_name = st.secrets["dynamodb"]["tickers_table"]
+        tbl  = ddb.Table(tbl_name)
         resp = tbl.query(
             IndexName="TickerSearchIndex",
             KeyConditionExpression=(
                 Key("gsi1pk").eq("ALL_TICKERS") &
                 Key("gsi1sk").begins_with(prefix)
             ),
-            Limit=limit * 2,   # fetch more to allow dedup by symbol
+            Limit=limit * 2,
         )
-        seen:   set[str] = set()
+        seen:    set[str]  = set()
         results: list[dict] = []
         for item in _from_decimal_list(resp.get("Items", [])):
             sym = item.get("symbol", "")
@@ -70,8 +78,11 @@ def search_tickers(prefix: str, limit: int = 12) -> list[dict]:
             if len(results) >= limit:
                 break
         return results
+    except KeyError as exc:
+        logger.warning("Ticker table not configured: %s", exc)
+        return []
     except Exception as exc:
-        logger.warning("Ticker search failed: %s", exc)
+        logger.error("Ticker search error: %s", exc)
         return []
 
 

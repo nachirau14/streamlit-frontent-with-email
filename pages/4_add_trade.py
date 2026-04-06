@@ -238,9 +238,14 @@ with tab_add:
         typed_upper = typed.strip().upper()
 
         # Live suggestions from DynamoDB ticker table
-        suggestions = []
+        # Cache last search in session_state to avoid hitting DynamoDB every rerun
+        cache_key = f"ticker_cache_{typed_upper}"
         if typed_upper and len(typed_upper) >= 1:
-            suggestions = search_tickers(typed_upper, limit=9)
+            if cache_key not in st.session_state:
+                st.session_state[cache_key] = search_tickers(typed_upper, limit=9)
+            suggestions = st.session_state[cache_key]
+        else:
+            suggestions = []
 
         confirmed = st.session_state.get("sym_confirmed", "")
 
@@ -265,10 +270,32 @@ with tab_add:
             fv_str = f" \u00b7 FV Rs.{fv_val:g}" if fv_val else ""
             st.success(f"\u2705 {confirmed}  {name}{fv_str}")
         elif typed_upper and not suggestions:
-            st.warning(
-                f"'{typed_upper}' not found in ticker master. "
-                "Run load_tickers.py to populate, or type the exact NSE symbol carefully."
-            )
+            # Try a direct test query to distinguish "empty table" from "query error"
+            try:
+                from utils.data import get_aws_config
+                import boto3
+                from boto3.dynamodb.conditions import Key as _Key
+                cfg      = get_aws_config()
+                _ddb     = boto3.resource("dynamodb", region_name=cfg["region"],
+                               aws_access_key_id=cfg["access_key_id"],
+                               aws_secret_access_key=cfg["secret_access_key"])
+                _tbl_name = st.secrets["dynamodb"].get("tickers_table", "")
+                if not _tbl_name:
+                    st.warning("tickers_table not set in secrets. Add tickers_table = 'portfolio_tickers_prod' under [dynamodb].")
+                else:
+                    _tbl = _ddb.Table(_tbl_name)
+                    # Check if table has any items at all
+                    _scan = _tbl.scan(Limit=3)
+                    _count = _scan.get("Count", 0)
+                    if _count == 0:
+                        st.warning(f"Ticker table '{_tbl_name}' appears empty. Run load_tickers.py to populate it.")
+                    else:
+                        st.warning(
+                            f"'{typed_upper}' not found in ticker master ({_tbl_name}). "
+                            f"Table has data ({_count}+ items). Check that load_tickers.py wrote gsi1pk='ALL_TICKERS'."
+                        )
+            except Exception as _e:
+                st.warning(f"'{typed_upper}' not found. Ticker lookup error: {_e}")
 
         # Confirm or clear
         if typed_upper != confirmed and confirmed:
