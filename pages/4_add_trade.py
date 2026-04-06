@@ -224,36 +224,58 @@ with tab_add:
             help="Tag with NSE sector for sector-level XIRR analysis.",
         )
 
-    # Symbol text input + NSE/BSE validation
+    # Symbol input with live DynamoDB ticker search
     sym_col, date_col = st.columns(2)
     with sym_col:
-        symbol_input = st.text_input(
-            "NSE Symbol *",
-            placeholder="e.g. RELIANCE, HDFCBANK, INFY",
+        typed = st.text_input(
+            "NSE/BSE Symbol *",
+            value=st.session_state.get("sym_confirmed", ""),
+            placeholder="Type to search — e.g. REL, HDFC, INFY",
             key="symbol_text_input",
-            help="Enter the exact NSE ticker. Click Validate to check before submitting.",
+            help="Type at least 1 character to see matching tickers from the NSE/BSE master list.",
         )
-        sym_upper = symbol_input.strip().upper() if symbol_input else ""
+        typed_upper = typed.strip().upper()
 
-        # Validate button — calls NSE API to confirm the ticker exists
-        if sym_upper:
-            vcol1, vcol2 = st.columns([1, 3])
-            with vcol1:
-                do_validate = st.button("🔍 Validate", key="validate_btn", width='content')
-            if do_validate:
-                with st.spinner(f"Checking {sym_upper} on NSE/BSE…"):
-                    valid, info = _validate_symbol_nse(sym_upper)
-                if valid:
-                    st.success(f"✅ {info}")
-                    st.session_state["sym_validated"] = sym_upper
-                else:
-                    st.error(f"⚠️ {info}")
-                    st.session_state["sym_validated"] = None
-            elif st.session_state.get("sym_validated") == sym_upper:
-                st.caption(f"✅ {sym_upper} validated")
-            elif st.session_state.get("sym_validated") and st.session_state.get("sym_validated") != sym_upper:
-                # Symbol changed after validation — clear it
-                st.session_state["sym_validated"] = None
+        # Live suggestions from DynamoDB ticker table
+        suggestions = []
+        if typed_upper and len(typed_upper) >= 1:
+            suggestions = search_tickers(typed_upper, limit=9)
+
+        confirmed = st.session_state.get("sym_confirmed", "")
+
+        if suggestions and typed_upper != confirmed:
+            st.caption(f"\U0001f50d {len(suggestions)} match(es) \u2014 click to select:")
+            btn_cols = st.columns(min(len(suggestions), 3))
+            for idx, s in enumerate(suggestions[:6]):
+                with btn_cols[idx % 3]:
+                    cname = s["company_name"][:24]
+                    if st.button(
+                        s["symbol"] + "  " + cname,
+                        key=f"sugg_{s['symbol']}_{idx}",
+                        width="stretch",
+                    ):
+                        st.session_state["sym_confirmed"] = s["symbol"]
+                        st.session_state["sym_fv"]        = s.get("face_value", 10.0)
+                        st.session_state["sym_name"]      = s.get("company_name", "")
+                        st.rerun()
+        elif confirmed and confirmed == typed_upper:
+            name   = st.session_state.get("sym_name", "")
+            fv_val = st.session_state.get("sym_fv", "")
+            fv_str = f" \u00b7 FV Rs.{fv_val:g}" if fv_val else ""
+            st.success(f"\u2705 {confirmed}  {name}{fv_str}")
+        elif typed_upper and not suggestions:
+            st.warning(
+                f"'{typed_upper}' not found in ticker master. "
+                "Run load_tickers.py to populate, or type the exact NSE symbol carefully."
+            )
+
+        # Confirm or clear
+        if typed_upper != confirmed and confirmed:
+            st.session_state["sym_confirmed"] = ""
+            st.session_state["sym_name"] = ""
+            confirmed = ""
+
+        symbol_input = confirmed if (confirmed and confirmed == typed_upper) else typed_upper
 
     with date_col:
         trade_date = st.date_input(

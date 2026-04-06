@@ -21,6 +21,64 @@ from botocore.exceptions import (
 logger = logging.getLogger(__name__)
 
 # Email notifications — imported lazily so missing config never breaks data ops
+
+def _ticker_table():
+    """Return the DynamoDB ticker master table resource."""
+    try:
+        name = st.secrets["dynamodb"]["tickers_table"]
+    except KeyError:
+        raise RuntimeError(
+            "tickers_table not set. Add it under [dynamodb] in your secrets: "
+            "tickers_table = \"portfolio_tickers_prod\""
+        )
+    return _get_ddb().Table(name)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def search_tickers(prefix: str, limit: int = 12) -> list[dict]:
+    """
+    Search the ticker master table for symbols starting with `prefix`.
+    Returns list of {symbol, company_name, exchange, face_value, isin}.
+    Results are cached for 5 minutes.
+    """
+    prefix = prefix.strip().upper()
+    if not prefix or len(prefix) < 1:
+        return []
+    try:
+        tbl  = _ticker_table()
+        resp = tbl.query(
+            IndexName="TickerSearchIndex",
+            KeyConditionExpression=(
+                Key("gsi1pk").eq("ALL_TICKERS") &
+                Key("gsi1sk").begins_with(prefix)
+            ),
+            Limit=limit * 2,   # fetch more to allow dedup by symbol
+        )
+        seen:   set[str] = set()
+        results: list[dict] = []
+        for item in _from_decimal_list(resp.get("Items", [])):
+            sym = item.get("symbol", "")
+            if sym and sym not in seen:
+                seen.add(sym)
+                results.append({
+                    "symbol":       sym,
+                    "company_name": item.get("company_name", ""),
+                    "exchange":     item.get("exchange", ""),
+                    "face_value":   float(item.get("face_value", 10)),
+                    "isin":         item.get("isin", ""),
+                })
+            if len(results) >= limit:
+                break
+        return results
+    except Exception as exc:
+        logger.warning("Ticker search failed: %s", exc)
+        return []
+
+
+def _from_decimal_list(items: list) -> list[dict]:
+    return [_from_decimal(i) for i in items]
+
+
 def _notify(*args, fn_name: str, **kwargs):
     """Fire-and-forget email notification. Never raises."""
     try:
