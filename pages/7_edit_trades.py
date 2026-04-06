@@ -212,6 +212,8 @@ with tab_single:
         rows.append({
             "_pk":     t.get("pk",""),
             "_sk":     t.get("sk",""),
+            "_raw":    t,
+            "Symbol":  t.get("symbol", selected_symbol).upper(),
             "Date":    t.get("trade_date",""),
             "Action":  t.get("action","").upper(),
             "Qty":     float(t.get("qty",0)),
