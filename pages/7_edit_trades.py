@@ -274,6 +274,47 @@ with tab_single:
     tab_edit, tab_del = st.tabs(["✏️  Edit", "🗑️  Delete"])
 
     with tab_edit:
+        # Symbol field — outside form so ticker search works live
+        current_symbol = selected_row.get("Symbol", selected_symbol)
+        sym_typed = st.text_input(
+            "Symbol",
+            value=st.session_state.get("edit_sym_input", current_symbol),
+            key="edit_symbol_input",
+            help="Change the ticker symbol. Type to search the NSE/BSE master list.",
+        )
+        sym_typed_upper = sym_typed.strip().upper()
+
+        if sym_typed_upper and sym_typed_upper != current_symbol:
+            cache_key = f"edit_ticker_{sym_typed_upper}"
+            if cache_key not in st.session_state:
+                st.session_state[cache_key] = search_tickers(sym_typed_upper, limit=6)
+            sugg = st.session_state.get(cache_key, [])
+            if sugg:
+                st.caption(f"Matches — click to select:")
+                scols = st.columns(min(len(sugg), 3))
+                for idx, s in enumerate(sugg[:6]):
+                    with scols[idx % 3]:
+                        cname = s["company_name"][:24]
+                        if st.button(
+                            s["symbol"] + "  " + cname,
+                            key=f"edit_sugg_{s['symbol']}_{idx}",
+                            width="stretch",
+                        ):
+                            st.session_state["edit_sym_confirmed"] = s["symbol"]
+                            st.session_state["edit_sym_input"]     = s["symbol"]
+                            st.rerun()
+
+        confirmed_sym = st.session_state.get("edit_sym_confirmed", "")
+        if confirmed_sym and confirmed_sym == sym_typed_upper:
+            st.success(f"Confirmed: {confirmed_sym}")
+            new_symbol = confirmed_sym
+        else:
+            new_symbol = sym_typed_upper
+            if confirmed_sym and confirmed_sym != sym_typed_upper:
+                st.session_state.pop("edit_sym_confirmed", None)
+
+        symbol_changed = bool(new_symbol and new_symbol != current_symbol)
+
         with st.form("edit_form"):
             e1, e2 = st.columns(2)
             with e1:
@@ -288,17 +329,19 @@ with tab_single:
                 new_qty = st.number_input("Qty", min_value=0.01,
                     value=float(selected_row["Qty"]), step=1.0, format="%.2f")
             with e4:
-                new_price = st.number_input("Price (₹)", min_value=0.0,
+                new_price = st.number_input("Price", min_value=0.0,
                     value=float(selected_row["Price"]), step=0.25, format="%.4f",
                     disabled=(action=="BONUS"))
             with e5:
-                new_charges = st.number_input("Charges (₹)", min_value=0.0,
+                new_charges = st.number_input("Charges", min_value=0.0,
                     value=float(selected_row["Charges"]), step=1.0, format="%.2f",
                     disabled=(action in ("DIVIDEND","BONUS")))
 
             new_notes = st.text_input("Notes", value=selected_row["Notes"], max_chars=200)
 
             changes = {}
+            if symbol_changed:
+                changes["symbol"] = new_symbol
             if new_date.isoformat() != selected_row["Date"]:
                 changes["trade_date"] = new_date.isoformat()
             if abs(new_qty - float(selected_row["Qty"])) > 0.001:
@@ -311,16 +354,20 @@ with tab_single:
                 changes["notes"] = new_notes.strip()
 
             if changes:
+                change_labels = []
+                if "symbol" in changes:
+                    change_labels.append(f"symbol: {current_symbol} to {new_symbol}")
+                change_labels += [k for k in changes if k != "symbol"]
                 st.markdown(
                     f'<div style="background:{TEAL}10;border:1px solid {TEAL}40;'
                     f'border-radius:8px;padding:10px 14px;margin:8px 0;font-size:0.85rem">'
                     f'<strong style="color:{TEAL}">Changes:</strong> '
-                    + ", ".join(f"<code>{k}</code>" for k in changes) + "</div>",
+                    + ", ".join(f"<code>{c}</code>" for c in change_labels) + "</div>",
                     unsafe_allow_html=True,
                 )
 
-            save_clicked = st.form_submit_button("💾 Save changes", type="primary",
-                width='stretch', disabled=(not changes))
+            save_clicked = st.form_submit_button("Save changes", type="primary",
+                width="stretch", disabled=(not changes))
 
         if save_clicked and changes:
             err = (
@@ -329,15 +376,23 @@ with tab_single:
                 else ("Quantity must be > 0." if "qty" in changes and changes["qty"] <= 0 else None)
             )
             if err:
-                st.error(f"✗ {err}")
+                st.error(err)
             else:
                 try:
-                    update_record(pk, sk, changes)
+                    if "symbol" in changes:
+                        rename_symbol_record(pk, sk, new_symbol, selected_row["_raw"])
+                        msg = f"Symbol renamed {current_symbol} to {new_symbol}"
+                    else:
+                        update_record(pk, sk, changes)
+                        keys = ", ".join(k for k in changes)
+                        msg = f"Updated: {keys}"
                     st.cache_data.clear()
-                    st.success(f"✅ Updated: {', '.join(changes)}")
+                    st.session_state.pop("edit_sym_confirmed", None)
+                    st.session_state.pop("edit_sym_input", None)
+                    st.success(msg)
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Update failed: `{e}`")
+                    st.error(f"Update failed: {e}")
 
     with tab_del:
         st.markdown(

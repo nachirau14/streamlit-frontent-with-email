@@ -471,11 +471,61 @@ def delete_record(pk: str, sk: str, symbol: str = "") -> None:
     _notify(pk, sk, symbol, fn_name="notify_trade_deleted")
 
 
+def rename_symbol_record(pk: str, sk: str, new_symbol: str, existing_record: dict) -> str:
+    """
+    Rename the symbol on a trade record. Because symbol is embedded in pk, sk,
+    and all GSI keys, we delete the old item and write a fresh one with the new symbol.
+    Returns the new SK.
+    """
+    new_symbol = new_symbol.strip().upper()
+    table      = _get_table("trades_table")
+
+    # Build the new item from the existing record
+    action = existing_record.get("action", "").upper()
+    tdate  = existing_record.get("trade_date", "")
+    broker = existing_record.get("broker", "").strip().upper()
+    sector = existing_record.get("sector", "").strip().upper()
+    gsi_sk = f"{action}#{new_symbol}#{tdate}"
+    prefix = ACTION_SK_PREFIX.get(action, "trade")
+    new_sk = f"{prefix}#{tdate}#{uuid.uuid4()}"
+
+    new_item = {
+        "pk":         f"scrip#{new_symbol}",
+        "sk":         new_sk,
+        "gsi1pk":     "ALL_TRADES",
+        "gsi1sk":     gsi_sk,
+        "symbol":     new_symbol,
+        "trade_date": tdate,
+        "action":     action,
+        "qty":        _to_decimal(float(existing_record.get("qty", 0))),
+        "price":      _to_decimal(float(existing_record.get("price", 0))),
+        "charges":    _to_decimal(float(existing_record.get("charges", 0))),
+        "notes":      existing_record.get("notes", ""),
+        "broker":     broker,
+        "sector":     sector,
+    }
+    if broker:
+        new_item["gsi2pk"] = f"broker#{broker}"
+        new_item["gsi2sk"] = gsi_sk
+    if sector:
+        new_item["gsi3pk"] = f"sector#{sector}"
+        new_item["gsi3sk"] = gsi_sk
+
+    # Write new, then delete old — order matters for safety
+    table.put_item(Item=new_item)
+    table.delete_item(Key={"pk": pk, "sk": sk})
+
+    load_trades_for_scrip.clear()
+    load_all_trades.clear()
+    load_all_latest_xirr.clear()
+    return new_sk
+
+
 def update_record(pk: str, sk: str, updates: dict) -> None:
     """
     Update editable fields on an existing trade record.
     Allowed fields: trade_date, qty, price, charges, notes.
-    action and symbol are intentionally not editable here — delete and re-add instead.
+    Symbol changes must go through rename_symbol_record().
     """
     allowed = {"trade_date", "qty", "price", "charges", "notes"}
     expr_parts = []
