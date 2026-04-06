@@ -8,8 +8,8 @@ from datetime import date
 
 from utils.data import (
     load_all_trades, load_trades_for_scrip,
-    delete_record, update_record,
-    VALID_ACTIONS,
+    delete_record, update_record, rename_symbol_record,
+    search_tickers, VALID_ACTIONS,
 )
 from utils.ui import (
     section_header, ACTION_COLOURS,
