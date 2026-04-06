@@ -13,6 +13,7 @@ from utils.data import (
     calc_broker_charges,
     save_broker_config,
     delete_broker_config,
+    search_tickers,
     NSE_SECTORS,
     DEFAULT_BROKERS,
 )
