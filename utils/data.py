@@ -801,49 +801,77 @@ def save_email_config(cfg: dict) -> None:
 def _fetch_prices_via_yfinance(symbols: list[str]) -> dict[str, float]:
     """
     Fetch current prices using yfinance from Streamlit Cloud.
+    Tries NSE (.NS) first in batch, then BSE (.BO) for any that failed.
     Streamlit Cloud IPs are NOT blocked by Yahoo Finance.
     Returns {SYMBOL: price} for as many symbols as succeed.
     """
     import yfinance as yf
 
     prices: dict[str, float] = {}
-    # Batch download is faster — yfinance supports multi-ticker
-    tickers_str = " ".join(f"{s}.NS" for s in symbols)
-    try:
-        data = yf.download(
-            tickers_str,
-            period="2d",
-            interval="1d",
-            progress=False,
-            threads=True,
-            timeout=30,
-        )
-        if data.empty:
-            raise ValueError("yfinance returned empty dataframe")
 
-        close = data["Close"] if "Close" in data else data.get("Adj Close")
-        if close is None:
-            raise ValueError("No Close column in yfinance data")
+    def _batch(syms: list[str], suffix: str) -> dict[str, float]:
+        """Download a batch with the given suffix (.NS or .BO)."""
+        if not syms:
+            return {}
+        tickers_str = " ".join(f"{s}{suffix}" for s in syms)
+        result: dict[str, float] = {}
+        try:
+            data = yf.download(
+                tickers_str,
+                period="2d",
+                interval="1d",
+                progress=False,
+                threads=True,
+                timeout=30,
+            )
+            if data.empty:
+                return result
+            close = data.get("Close") if "Close" in data else data.get("Adj Close")
+            if close is None:
+                return result
+            last_row = close.dropna(how="all").iloc[-1]
+            for col in last_row.index:
+                sym   = str(col).replace(suffix, "").upper()
+                price = last_row[col]
+                if price and not (price != price) and float(price) > 0:   # also guard NaN
+                    result[sym] = float(price)
+        except Exception as e:
+            logger.warning("yfinance batch %s failed: %s", suffix, e)
+        return result
 
-        last_row = close.dropna(how="all").iloc[-1]
-        for col in last_row.index:
-            sym   = str(col).replace(".NS", "").upper()
-            price = last_row[col]
-            if price and float(price) > 0:
-                prices[sym] = float(price)
-    except Exception as e:
-        logger.warning("yfinance batch download failed: %s — trying individual", e)
-        # Fall back to individual tickers
-        for symbol in symbols:
-            try:
-                ticker = yf.Ticker(f"{symbol}.NS")
-                hist   = ticker.history(period="2d", timeout=15)
-                if not hist.empty:
-                    price = float(hist["Close"].dropna().iloc[-1])
-                    if price > 0:
-                        prices[symbol] = price
-            except Exception as exc:
-                logger.warning("yfinance individual failed for %s: %s", symbol, exc)
+    def _individual(sym: str, suffix: str) -> float | None:
+        """Fetch a single ticker with the given suffix."""
+        try:
+            hist = yf.Ticker(f"{sym}{suffix}").history(period="2d", timeout=15)
+            if not hist.empty:
+                price = float(hist["Close"].dropna().iloc[-1])
+                if price > 0:
+                    return price
+        except Exception:
+            pass
+        return None
+
+    # Pass 1: batch NSE
+    prices.update(_batch(symbols, ".NS"))
+
+    # Pass 2: for symbols that failed .NS, try BSE individually
+    missing = [s for s in symbols if s not in prices]
+    if missing:
+        logger.info("Trying BSE (.BO) for %d symbols without NSE price: %s",
+                    len(missing), missing)
+        # Try batch BSE first
+        bse_prices = _batch(missing, ".BO")
+        prices.update(bse_prices)
+
+        # Any still missing — individual fallback for both exchanges
+        still_missing = [s for s in missing if s not in prices]
+        for sym in still_missing:
+            price = _individual(sym, ".NS") or _individual(sym, ".BO")
+            if price:
+                prices[sym] = price
+                logger.info("Fetched %s via individual fallback: %.2f", sym, price)
+            else:
+                logger.warning("No price found for %s on NSE or BSE", sym)
 
     return prices
 
