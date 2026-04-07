@@ -801,20 +801,63 @@ def save_email_config(cfg: dict) -> None:
 def _fetch_prices_via_yfinance(symbols: list[str]) -> dict[str, float]:
     """
     Fetch current prices using yfinance from Streamlit Cloud.
-    Tries NSE (.NS) first in batch, then BSE (.BO) for any that failed.
-    Streamlit Cloud IPs are NOT blocked by Yahoo Finance.
-    Returns {SYMBOL: price} for as many symbols as succeed.
+    Tries NSE (.NS) first, then BSE (.BO) for any that failed.
+    Handles both single-ticker (simple columns) and multi-ticker
+    (MultiIndex columns) responses from yfinance.
     """
     import yfinance as yf
+    import pandas as pd
 
     prices: dict[str, float] = {}
 
-    def _batch(syms: list[str], suffix: str) -> dict[str, float]:
-        """Download a batch with the given suffix (.NS or .BO)."""
+    def _parse_yf_data(data, syms: list[str], suffix: str) -> dict[str, float]:
+        """Extract close prices from a yfinance download result."""
+        result: dict[str, float] = {}
+        if data is None or data.empty:
+            return result
+
+        # yfinance returns MultiIndex columns for multiple tickers,
+        # simple columns for a single ticker
+        if isinstance(data.columns, pd.MultiIndex):
+            # Multi-ticker: columns are (field, ticker) e.g. ('Close', 'RELIANCE.NS')
+            if "Close" in data.columns.get_level_values(0):
+                close_df = data["Close"]
+            elif "Adj Close" in data.columns.get_level_values(0):
+                close_df = data["Adj Close"]
+            else:
+                return result
+            last = close_df.dropna(how="all").iloc[-1]
+            for col in last.index:
+                sym   = str(col).replace(suffix, "").upper()
+                price = last[col]
+                try:
+                    p = float(price)
+                    if p > 0 and p == p:  # > 0 and not NaN
+                        result[sym] = p
+                except (TypeError, ValueError):
+                    pass
+        else:
+            # Single ticker: columns are field names e.g. 'Close'
+            col_name = "Close" if "Close" in data.columns else (
+                "Adj Close" if "Adj Close" in data.columns else None
+            )
+            if col_name:
+                series = data[col_name].dropna()
+                if not series.empty:
+                    # syms should have exactly one entry here
+                    sym = syms[0] if syms else ""
+                    try:
+                        p = float(series.iloc[-1])
+                        if p > 0:
+                            result[sym] = p
+                    except (TypeError, ValueError):
+                        pass
+        return result
+
+    def _download(syms: list[str], suffix: str) -> dict[str, float]:
         if not syms:
             return {}
         tickers_str = " ".join(f"{s}{suffix}" for s in syms)
-        result: dict[str, float] = {}
         try:
             data = yf.download(
                 tickers_str,
@@ -824,54 +867,40 @@ def _fetch_prices_via_yfinance(symbols: list[str]) -> dict[str, float]:
                 threads=True,
                 timeout=30,
             )
-            if data.empty:
-                return result
-            close = data.get("Close") if "Close" in data else data.get("Adj Close")
-            if close is None:
-                return result
-            last_row = close.dropna(how="all").iloc[-1]
-            for col in last_row.index:
-                sym   = str(col).replace(suffix, "").upper()
-                price = last_row[col]
-                if price and not (price != price) and float(price) > 0:   # also guard NaN
-                    result[sym] = float(price)
+            return _parse_yf_data(data, syms, suffix)
         except Exception as e:
-            logger.warning("yfinance batch %s failed: %s", suffix, e)
-        return result
+            logger.warning("yfinance download %s failed: %s", suffix, e)
+            return {}
 
     def _individual(sym: str, suffix: str) -> float | None:
-        """Fetch a single ticker with the given suffix."""
         try:
             hist = yf.Ticker(f"{sym}{suffix}").history(period="2d", timeout=15)
             if not hist.empty:
-                price = float(hist["Close"].dropna().iloc[-1])
-                if price > 0:
-                    return price
+                p = float(hist["Close"].dropna().iloc[-1])
+                if p > 0:
+                    return p
         except Exception:
             pass
         return None
 
     # Pass 1: batch NSE
-    prices.update(_batch(symbols, ".NS"))
+    prices.update(_download(symbols, ".NS"))
 
-    # Pass 2: for symbols that failed .NS, try BSE individually
+    # Pass 2: missing symbols — try BSE batch
     missing = [s for s in symbols if s not in prices]
     if missing:
-        logger.info("Trying BSE (.BO) for %d symbols without NSE price: %s",
-                    len(missing), missing)
-        # Try batch BSE first
-        bse_prices = _batch(missing, ".BO")
-        prices.update(bse_prices)
+        logger.info("Trying BSE (.BO) for %d symbol(s): %s", len(missing), missing)
+        prices.update(_download(missing, ".BO"))
 
-        # Any still missing — individual fallback for both exchanges
-        still_missing = [s for s in missing if s not in prices]
-        for sym in still_missing:
-            price = _individual(sym, ".NS") or _individual(sym, ".BO")
-            if price:
-                prices[sym] = price
-                logger.info("Fetched %s via individual fallback: %.2f", sym, price)
-            else:
-                logger.warning("No price found for %s on NSE or BSE", sym)
+    # Pass 3: still missing — individual fetch for both exchanges
+    still_missing = [s for s in symbols if s not in prices]
+    for sym in still_missing:
+        price = _individual(sym, ".NS") or _individual(sym, ".BO")
+        if price:
+            prices[sym] = price
+            logger.info("Fetched %s individually: %.2f", sym, price)
+        else:
+            logger.warning("No price for %s on NSE or BSE", sym)
 
     return prices
 
@@ -975,6 +1004,10 @@ def trigger_lambda(symbols: list[str] | None = None) -> tuple[bool, str]:
                 "Could not fetch any prices from Yahoo Finance. "
                 "Check your internet connection or try again in a few minutes."
             )
+        if len(prices) < len(target_symbols):
+            no_price = [s for s in target_symbols if s not in prices]
+            logger.warning("No price for %d symbol(s): %s", len(no_price), no_price)
+            # Continue — Lambda will use DynamoDB snapshots for missing ones
         logger.info("Fetched %d/%d prices via yfinance", len(prices), len(target_symbols))
     except Exception as e:
         return False, f"Price fetch failed: {e}"
