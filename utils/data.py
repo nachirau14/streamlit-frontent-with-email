@@ -300,7 +300,6 @@ def load_all_latest_xirr() -> list[dict]:
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-@st.cache_data(ttl=300, show_spinner=False)
 def load_snapshot_on_date(symbol: str | None, target_date: str) -> dict | None:
     """
     Return the XIRR snapshot closest to (but not after) target_date.
