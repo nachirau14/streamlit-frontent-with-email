@@ -300,6 +300,29 @@ def load_all_latest_xirr() -> list[dict]:
 
 
 @st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
+def load_snapshot_on_date(symbol: str | None, target_date: str) -> dict | None:
+    """
+    Return the XIRR snapshot closest to (but not after) target_date.
+    symbol=None → portfolio-level snapshot.
+    target_date: ISO date string e.g. "2026-03-07"
+    """
+    pk = "PORTFOLIO" if symbol is None else f"scrip#{symbol.upper()}"
+    try:
+        items = _paginate_query(
+            _get_table("xirr_table"),
+            KeyConditionExpression=(
+                Key("pk").eq(pk) &
+                Key("sk").between("snapshot#2000", f"snapshot#{target_date}z")
+            ),
+            ScanIndexForward=False,
+            Limit=1,
+        )
+        return _from_decimal(items[0]) if items else None
+    except Exception:
+        return None
+
+
 def load_xirr_history(symbol: str | None, limit: int = 90) -> list[dict]:
     pk    = "PORTFOLIO" if symbol is None else f"scrip#{symbol.upper()}"
     items = _paginate_query(

@@ -10,6 +10,7 @@ from datetime import date
 from utils.data import (
     load_all_latest_xirr,
     load_xirr_history,
+    load_snapshot_on_date,
     load_all_trades,
     test_connection,
     get_aws_config,
@@ -390,16 +391,111 @@ with left:
     st.plotly_chart(fig_tree, width='stretch', config={"displayModeBar": False})
 
 with right:
-    section_header("Portfolio XIRR Trend", "Last 90 daily snapshots")
-    hist = load_xirr_history(None, limit=90)
+    # Determine symbol context for history — single scrip filter or portfolio
+    trend_symbol = None
+    trend_title  = "Portfolio XIRR %"
+    if is_filtered and f_count == 1:
+        trend_symbol = df["Symbol"].iloc[0] if not df.empty else None
+        trend_title  = f"{trend_symbol} XIRR %" if trend_symbol else "Portfolio XIRR %"
+
+    section_header("XIRR Trend", "Last 90 daily snapshots")
+    hist = load_xirr_history(trend_symbol, limit=90)
     if hist:
         st.plotly_chart(
-            xirr_history_chart(hist, "Portfolio XIRR %"),
+            xirr_history_chart(hist, trend_title),
             width='stretch',
             config={"displayModeBar": False},
         )
     else:
         st.info("No XIRR history yet. History builds up daily after the Lambda runs.")
+
+    # ── Price & value comparison panel ───────────────────────────────────────
+    from datetime import date as _date, timedelta as _td
+    today        = _date.today()
+    prev_day     = today - _td(days=1)
+    # Go back a few days to find a trading day (skip weekends)
+    prev_trading = today - _td(days=3)   # Friday if today is Monday
+    prev_month   = today.replace(day=1) - _td(days=1)   # last day of prev month
+
+    # Latest snapshot for current lmp
+    snap_today = None
+    if hist:
+        snap_today = hist[0]   # most recent (ScanIndexForward=False)
+
+    snap_prev_day   = load_snapshot_on_date(trend_symbol, prev_trading.isoformat())
+    snap_prev_month = load_snapshot_on_date(trend_symbol, prev_month.isoformat())
+
+    def _lmp(snap):
+        return float(snap.get("lmp", 0)) if snap else None
+
+    def _val(snap):
+        return float(snap.get("current_value", 0)) if snap else None
+
+    lmp_now   = _lmp(snap_today)
+    lmp_1d    = _lmp(snap_prev_day)
+    lmp_1m    = _lmp(snap_prev_month)
+    val_now   = _val(snap_today)
+    val_1d    = _val(snap_prev_day)
+    val_1m    = _val(snap_prev_month)
+
+    def _pct(now, prev):
+        if now and prev and prev > 0:
+            return (now - prev) / prev * 100
+        return None
+
+    def _pct_html(pct):
+        if pct is None:
+            return f'<span style="color:{GREY}">—</span>'
+        colour = TEAL if pct >= 0 else RED
+        arrow  = "▲" if pct >= 0 else "▼"
+        return f'<span style="color:{colour};font-weight:700">{arrow} {abs(pct):.2f}%</span>'
+
+    def _price_row(label: str, lmp_then, val_then, lmp_cur, val_cur, as_of: str = ""):
+        """Render one comparison row."""
+        use_val  = trend_symbol is None   # portfolio: compare value, not price
+        now_num  = val_cur  if use_val else lmp_cur
+        then_num = val_then if use_val else lmp_then
+        pct      = _pct(now_num, then_num)
+        fmt      = fmt_inr(then_num) if then_num else "—"
+        date_lbl = f'<span style="color:{GREY};font-size:0.75rem"> ({as_of})</span>' if as_of else ""
+        return (
+            f'<div style="display:flex;justify-content:space-between;align-items:center;'
+            f'padding:8px 0;border-bottom:1px solid {BORDER}">'
+            f'<div style="color:{GREY};font-size:0.85rem">{label}{date_lbl}</div>'
+            f'<div style="text-align:right">'
+            f'<span style="font-weight:600;margin-right:8px">{fmt}</span>'
+            f'{_pct_html(pct)}'
+            f'</div></div>'
+        )
+
+    label_field = "Portfolio Value" if trend_symbol is None else "Price (LMP)"
+    as_of_1d    = snap_prev_day.get("as_of", "")   if snap_prev_day   else ""
+    as_of_1m    = snap_prev_month.get("as_of", "") if snap_prev_month else ""
+
+    rows_html = ""
+    if lmp_1d or val_1d:
+        rows_html += _price_row("vs Prev Trading Day", lmp_1d, val_1d,
+                                 lmp_now, val_now, as_of_1d)
+    if lmp_1m or val_1m:
+        rows_html += _price_row("vs Prev Month End",   lmp_1m, val_1m,
+                                 lmp_now, val_now, as_of_1m)
+
+    if rows_html and (lmp_now or val_now):
+        current_label = fmt_inr(val_now if trend_symbol is None else lmp_now)
+        st.markdown(
+            f'<div style="background:{CARD_BG};border:1px solid {BORDER};'
+            f'border-radius:10px;padding:14px 18px;margin-top:8px">'
+            f'<div style="display:flex;justify-content:space-between;'
+            f'align-items:center;margin-bottom:10px">'
+            f'<div style="font-size:0.78rem;color:{GREY};text-transform:uppercase;'
+            f'letter-spacing:0.06em">{label_field}</div>'
+            f'<div style="font-size:1.2rem;font-weight:700;color:{TEAL}">'
+            f'{current_label}</div></div>'
+            f'{rows_html}</div>',
+            unsafe_allow_html=True,
+        )
+    elif not hist:
+        pass  # already shown info above
 
 # ── Scrip table ───────────────────────────────────────────────────────────────
 section_header(
