@@ -322,6 +322,7 @@ def load_snapshot_on_date(symbol: str | None, target_date: str) -> dict | None:
         return None
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def load_xirr_history(symbol: str | None, limit: int = 90) -> list[dict]:
     pk    = "PORTFOLIO" if symbol is None else f"scrip#{symbol.upper()}"
     items = _paginate_query(
@@ -405,7 +406,7 @@ def put_record(record: dict) -> str:
     load_trades_for_scrip.clear()
     load_all_trades.clear()
     load_all_latest_xirr.clear()
-
+    load_xirr_history.clear()
     _notify(record, fn_name="notify_trade_added")
     return sk
 
@@ -490,6 +491,7 @@ def delete_record(pk: str, sk: str, symbol: str = "") -> None:
     load_trades_for_scrip.clear()
     load_all_trades.clear()
     load_all_latest_xirr.clear()
+    load_xirr_history.clear()
     _notify(pk, sk, symbol, fn_name="notify_trade_deleted")
 
 
@@ -579,10 +581,8 @@ def update_record(pk: str, sk: str, updates: dict) -> None:
     load_trades_for_scrip.clear()
     load_all_trades.clear()
     load_all_latest_xirr.clear()
+    load_xirr_history.clear()
     _notify({"pk": pk, "sk": sk, **updates}, fn_name="notify_trade_edited")
-    load_trades_for_scrip.clear()
-    load_all_trades.clear()
-    load_all_latest_xirr.clear()
 
 
 
