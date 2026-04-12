@@ -407,6 +407,9 @@ def put_record(record: dict) -> str:
     load_all_trades.clear()
     load_all_latest_xirr.clear()
     load_xirr_history.clear()
+    # Auto-register broker if new
+    if record.get("broker"):
+        ensure_brokers_registered([record["broker"]])
     _notify(record, fn_name="notify_trade_added")
     return sk
 
@@ -480,6 +483,8 @@ def batch_put_records(records: list[dict]) -> tuple[int, list[str]]:
         load_all_trades.clear()
         load_all_latest_xirr.clear()
         symbols_written = list({r.get("symbol","") for r in records if r.get("symbol")})
+        broker_names = list({r.get("broker","") for r in records if r.get("broker")})
+        ensure_brokers_registered(broker_names)
         _notify(written, len(errors), symbols_written, fn_name="notify_bulk_upload")
 
     return written, errors
@@ -608,7 +613,11 @@ DEFAULT_BROKERS = [
 
 @st.cache_data(ttl=300, show_spinner=False)
 def load_broker_configs() -> list[dict]:
-    """Return all broker configs sorted by name."""
+    """
+    Return all broker configs sorted by name.
+    Filters to only broker config items (sk="config"),
+    excluding email/other config items in the same table.
+    """
     try:
         tbl      = _broker_config_table()
         response = tbl.scan()
@@ -616,32 +625,95 @@ def load_broker_configs() -> list[dict]:
         while response.get("LastEvaluatedKey"):
             response = tbl.scan(ExclusiveStartKey=response["LastEvaluatedKey"])
             items   += [_from_decimal(i) for i in response.get("Items", [])]
-        return sorted(items, key=lambda x: x.get("broker_name", ""))
+        # Only return broker config items, not email config or other special items
+        broker_items = [
+            i for i in items
+            if str(i.get("pk","")).startswith("broker#")
+            and i.get("sk") == "config"
+        ]
+        return sorted(broker_items, key=lambda x: x.get("broker_name", ""))
     except Exception:
         return []
+
+
+def get_all_broker_names() -> list[str]:
+    """
+    Return a sorted list of all known broker names — from both the config table
+    and directly from trade records. Ensures brokers in trades always appear
+    in dropdowns even before explicit registration.
+    """
+    # From config table
+    configured = {
+        c.get("broker_key", ""): c.get("broker_name", c.get("broker_key", ""))
+        for c in load_broker_configs()
+        if c.get("broker_key")
+    }
+    # From trades — pick up any brokers used but not yet in config table
+    try:
+        all_t = load_all_trades()
+        for trades in all_t.values():
+            for t in trades:
+                bk = t.get("broker","").strip().upper()
+                if bk and bk not in configured:
+                    configured[bk] = bk.replace("_"," ").title()
+    except Exception:
+        pass
+    return sorted(configured.values())
 
 
 def save_broker_config(config: dict) -> None:
     """
     Upsert a broker config item.
-    config must contain: broker_key (e.g. "ZERODHA"), broker_name,
-    buy_pct, buy_min, sell_pct, sell_min, rights_pct, rights_min.
+    config must contain: broker_key or broker_name.
+    Charge rates are optional — stored if provided, defaulted to 0 otherwise.
+    broker_key is derived from broker_name if not explicitly provided.
     """
-    broker_key = config["broker_key"].strip().upper()
+    broker_name = config.get("broker_name", "").strip()
+    broker_key  = config.get("broker_key", "").strip().upper()
+    if not broker_key and broker_name:
+        # Derive key from name: uppercase, spaces → underscores
+        broker_key = broker_name.upper().replace(" ", "_")
+    if not broker_key:
+        raise ValueError("broker_key or broker_name is required")
+    if not broker_name:
+        broker_name = broker_key.replace("_", " ").title()
+
     item = {
         "pk":           f"broker#{broker_key}",
         "sk":           "config",
         "broker_key":   broker_key,
-        "broker_name":  config.get("broker_name", broker_key).strip(),
-        "buy_pct":      Decimal(str(config.get("buy_pct",    0.03))),
-        "buy_min":      Decimal(str(config.get("buy_min",   20.0))),
-        "sell_pct":     Decimal(str(config.get("sell_pct",   0.03))),
-        "sell_min":     Decimal(str(config.get("sell_min",  20.0))),
-        "rights_pct":   Decimal(str(config.get("rights_pct", 0.03))),
-        "rights_min":   Decimal(str(config.get("rights_min",20.0))),
+        "broker_name":  broker_name,
+        "buy_pct":      Decimal(str(config.get("buy_pct",    0.0))),
+        "buy_min":      Decimal(str(config.get("buy_min",    0.0))),
+        "sell_pct":     Decimal(str(config.get("sell_pct",   0.0))),
+        "sell_min":     Decimal(str(config.get("sell_min",   0.0))),
+        "rights_pct":   Decimal(str(config.get("rights_pct", 0.0))),
+        "rights_min":   Decimal(str(config.get("rights_min", 0.0))),
     }
     _broker_config_table().put_item(Item=item)
     load_broker_configs.clear()
+
+
+def ensure_brokers_registered(broker_names: list[str]) -> None:
+    """
+    Auto-register any broker names that appear in trades but aren't in
+    the broker config table yet. Called after bulk upload and add trade.
+    Creates a minimal config entry with zero rates.
+    """
+    if not broker_names:
+        return
+    try:
+        existing = {c.get("broker_key", "") for c in load_broker_configs()}
+        for name in broker_names:
+            name = name.strip().upper()
+            if not name:
+                continue
+            key = name.replace(" ", "_")
+            if key not in existing:
+                save_broker_config({"broker_key": key, "broker_name": name})
+                logger.info("Auto-registered broker: %s", key)
+    except Exception as exc:
+        logger.warning("ensure_brokers_registered failed: %s", exc)
 
 
 def delete_broker_config(broker_key: str) -> None:

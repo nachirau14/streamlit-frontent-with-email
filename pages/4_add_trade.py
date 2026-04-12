@@ -10,12 +10,9 @@ from utils.data import (
     put_record,
     load_all_trades,
     load_broker_configs,
-    calc_broker_charges,
-    save_broker_config,
-    delete_broker_config,
+    get_all_broker_names,
     search_tickers,
     NSE_SECTORS,
-    DEFAULT_BROKERS,
 )
 from utils.ui import (
     section_header, metric_card,
@@ -163,15 +160,19 @@ tab_add, tab_brokers = st.tabs(["➕  Add Trade", "🏦  Manage Brokers"])
 with tab_add:
 
     broker_configs = load_broker_configs()
-    broker_options = ["(none)"] + [c.get("broker_name", c.get("broker_key", "")) for c in broker_configs]
-    broker_key_map = {c.get("broker_name", c.get("broker_key", "")): c.get("broker_key", "") for c in broker_configs}
-
-    if not broker_configs:
-        st.info(
-            "No brokers configured yet — charges won't be auto-calculated. "
-            "Add brokers in the **🏦 Manage Brokers** tab above, or on the **Broker Config** page.",
-            icon="ℹ️",
-        )
+    all_broker_names = get_all_broker_names()
+    broker_options   = ["(none)"] + all_broker_names
+    # Map display name → broker key (uppercase underscored)
+    broker_key_map   = {
+        name: name.upper().replace(" ", "_")
+        for name in all_broker_names
+    }
+    # Also map from config for backwards compatibility
+    for c in broker_configs:
+        bname = c.get("broker_name", c.get("broker_key",""))
+        bkey  = c.get("broker_key","")
+        if bname and bkey:
+            broker_key_map[bname] = bkey
 
     try:
         trade_symbols = set(load_all_trades().keys())

@@ -52,127 +52,95 @@ tab_bulk, tab_single = st.tabs(["🗑️  Bulk Delete", "✏️  Edit / Delete S
 
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_bulk:
-    st.markdown(
-        f'<div style="color:{GREY};font-size:0.88rem;margin-bottom:16px">'
-        "Filter records, tick the checkboxes on the left to select rows, "
-        "then type DELETE and confirm.</div>",
-        unsafe_allow_html=True,
+    section_header("Delete by Scrip", "Select one or more scrips to delete all their records")
+
+    # Step 1: choose scrips
+    sel_syms = st.multiselect(
+        "Select scrip(s) to delete",
+        options=symbols,
+        placeholder="Choose scrip(s)…",
+        label_visibility="collapsed",
     )
 
-    f1, f2, f3, f4 = st.columns([2, 2, 1, 1])
-    with f1:
-        bulk_symbols = st.multiselect("Scrip", symbols, placeholder="All scrips",
-                                      label_visibility="collapsed")
-    with f2:
-        bulk_actions = st.multiselect("Action", sorted(VALID_ACTIONS),
-                                      placeholder="All actions",
-                                      label_visibility="collapsed")
-    with f3:
-        date_from = st.date_input("From", value=None, label_visibility="collapsed")
-    with f4:
-        date_to   = st.date_input("To",   value=None, label_visibility="collapsed")
+    # Step 2: optional action filter
+    sel_actions = st.multiselect(
+        "Limit to specific actions (optional — leave empty to delete all records)",
+        options=sorted(VALID_ACTIONS),
+        placeholder="All actions",
+        label_visibility="collapsed",
+    )
 
-    all_rows = []
-    for sym, trades in all_trades.items():
-        for t in trades:
-            all_rows.append({
-                "_pk":     t.get("pk", ""),
-                "_sk":     t.get("sk", ""),
-                "Symbol":  sym,
-                "Date":    t.get("trade_date", ""),
-                "Action":  t.get("action", "").upper(),
-                "Qty":     float(t.get("qty", 0)),
-                "Price":   float(t.get("price", 0)),
-                "Charges": float(t.get("charges", 0)),
-                "Notes":   t.get("notes", ""),
-                "Broker":  t.get("broker", ""),
-            })
+    if sel_syms:
+        # Build preview of what will be deleted
+        preview_rows = []
+        for sym in sel_syms:
+            for t in all_trades.get(sym, []):
+                action = t.get("action", "").upper()
+                if sel_actions and action not in sel_actions:
+                    continue
+                preview_rows.append({
+                    "_pk":    t.get("pk", ""),
+                    "_sk":    t.get("sk", ""),
+                    "Symbol": sym,
+                    "Date":   t.get("trade_date", ""),
+                    "Action": action,
+                    "Qty":    float(t.get("qty", 0)),
+                    "Price":  float(t.get("price", 0)),
+                    "Notes":  t.get("notes", ""),
+                })
 
-    bulk_df = pd.DataFrame(all_rows).sort_values(
-        ["Date", "Symbol"], ascending=[False, True]
-    ).reset_index(drop=True)
-
-    if bulk_symbols:
-        bulk_df = bulk_df[bulk_df["Symbol"].isin(bulk_symbols)].reset_index(drop=True)
-    if bulk_actions:
-        bulk_df = bulk_df[bulk_df["Action"].isin(bulk_actions)].reset_index(drop=True)
-    if date_from:
-        bulk_df = bulk_df[bulk_df["Date"] >= date_from.isoformat()].reset_index(drop=True)
-    if date_to:
-        bulk_df = bulk_df[bulk_df["Date"] <= date_to.isoformat()].reset_index(drop=True)
-
-    if bulk_df.empty:
-        st.info("No records match the current filters.")
-    else:
-        st.caption(f"{len(bulk_df)} record(s) — tick rows on the left to select for deletion.")
-
-        display_cols = ["Symbol","Date","Action","Qty","Price","Charges","Notes","Broker"]
-
-        edited = st.data_editor(
-            bulk_df[display_cols],
-            hide_index=False,
-            num_rows="fixed",
-            width='stretch',
-            height=min(520, 60 + len(bulk_df) * 36),
-            column_config={
-                "Symbol":  st.column_config.TextColumn(width="small"),
-                "Date":    st.column_config.TextColumn(width="small"),
-                "Action":  st.column_config.TextColumn(width="small"),
-                "Qty":     st.column_config.NumberColumn(format="%.0f", width="small"),
-                "Price":   st.column_config.NumberColumn(format="₹%.2f", width="small"),
-                "Charges": st.column_config.NumberColumn(format="₹%.2f", width="small"),
-                "Notes":   st.column_config.TextColumn(width="medium"),
-                "Broker":  st.column_config.TextColumn(width="small"),
-            },
-            disabled=display_cols,
-            key="bulk_edit_table",
-        )
-
-        editor_state  = st.session_state.get("bulk_edit_table", {})
-        selected_idxs = sorted(editor_state.get("selected_rows", []))
-
-        if selected_idxs:
-            sel_summary = ", ".join(
-                f"{bulk_df.iloc[i]['Symbol']} {bulk_df.iloc[i]['Action']} {bulk_df.iloc[i]['Date']}"
-                for i in selected_idxs[:5]
-            ) + (f" … +{len(selected_idxs)-5} more" if len(selected_idxs) > 5 else "")
+        n = len(preview_rows)
+        if n == 0:
+            st.info("No records match the selection.")
+        else:
+            # Preview table
+            preview_df = pd.DataFrame(preview_rows)[
+                ["Symbol","Date","Action","Qty","Price","Notes"]
+            ].sort_values(["Symbol","Date"]).reset_index(drop=True)
 
             st.markdown(
                 f'<div style="background:{RED}10;border:1px solid {RED}40;'
-                f'border-radius:8px;padding:10px 16px;margin:12px 0;font-size:0.88rem">'
-                f'<strong style="color:{RED}">⚠️ {len(selected_idxs)} record(s) selected:</strong> '
-                f'{sel_summary}</div>',
+                f'border-radius:8px;padding:10px 16px;margin:12px 0">'
+                f'<strong style="color:{RED}">⚠️ {n} record(s) will be deleted</strong> '
+                f'for: {", ".join(sel_syms)}</div>',
                 unsafe_allow_html=True,
             )
-
-            confirm_bulk = st.text_input(
-                f"Type DELETE to confirm removal of {len(selected_idxs)} record(s)",
-                placeholder="Type DELETE to confirm",
-                key="bulk_delete_confirm",
+            st.dataframe(
+                preview_df.style.hide(axis="index"),
+                width='stretch',
+                height=min(400, 60 + n * 35),
+                hide_index=True,
             )
 
+            # Confirmation
+            confirm = st.text_input(
+                "Type DELETE to confirm",
+                placeholder="Type DELETE to confirm",
+                key="bulk_scrip_confirm",
+            )
             if st.button(
-                f"🗑️ Delete {len(selected_idxs)} selected record(s)",
+                f"🗑️ Delete {n} record(s) for {len(sel_syms)} scrip(s)",
                 type="primary",
-                disabled=(confirm_bulk.strip().upper() != "DELETE"),
-                key="bulk_delete_btn",
-            ) and confirm_bulk.strip().upper() == "DELETE":
+                disabled=(confirm.strip().upper() != "DELETE"),
+                key="bulk_scrip_del_btn",
+            ) and confirm.strip().upper() == "DELETE":
                 success = failed = 0
-                for i in selected_idxs:
+                for row in preview_rows:
                     try:
-                        row = bulk_df.iloc[i]
                         delete_record(row["_pk"], row["_sk"], symbol=row["Symbol"])
                         success += 1
                     except Exception as exc:
-                        st.error(f"Row {i}: {exc}")
+                        st.error(f"{row['Symbol']} {row['Date']}: {exc}")
                         failed += 1
                 if success:
                     st.cache_data.clear()
-                    st.success(f"✅ Deleted {success} record(s)" +
-                               (f" · {failed} failed" if failed else ""))
+                    st.success(
+                        f"✅ Deleted {success} record(s)" +
+                        (f" · {failed} failed" if failed else "")
+                    )
                     st.rerun()
-        else:
-            st.info("Tick the checkbox on the left of each row you want to delete.")
+    else:
+        st.info("Select one or more scrips above to preview and delete their records.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
