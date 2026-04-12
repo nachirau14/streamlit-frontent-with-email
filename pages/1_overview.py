@@ -383,11 +383,69 @@ st.markdown("<div style='height:20px'/>", unsafe_allow_html=True)
 left, right = st.columns([3, 2])
 
 with left:
-    treemap_title = (
-        f"Holdings Map · {filter_label}" if is_filtered else "Holdings Map"
+    PAGE_SIZE = 20
+
+    # All scrips with value > 0, sorted by current value descending
+    tree_scrips = sorted(
+        [s for s in filtered_snaps if s.get("type") == "SCRIP"
+         and float(s.get("current_value", 0)) > 0],
+        key=lambda x: float(x.get("current_value", 0)),
+        reverse=True,
     )
-    section_header(treemap_title, "Sized by current value · Colour = XIRR")
-    fig_tree = portfolio_treemap(filtered_snaps)
+    total_scrips = len(tree_scrips)
+    total_pages  = max(1, (total_scrips + PAGE_SIZE - 1) // PAGE_SIZE)
+
+    # Page state
+    if "treemap_page" not in st.session_state:
+        st.session_state["treemap_page"] = 0
+    # Clamp to valid range when filter changes
+    st.session_state["treemap_page"] = min(
+        st.session_state["treemap_page"], total_pages - 1
+    )
+    page = st.session_state["treemap_page"]
+
+    # Slice for current page
+    page_scrips = tree_scrips[page * PAGE_SIZE : (page + 1) * PAGE_SIZE]
+
+    # Header row with title + pagination controls
+    th1, th2 = st.columns([3, 2])
+    with th1:
+        treemap_title = (
+            f"Holdings Map · {filter_label}" if is_filtered else "Holdings Map"
+        )
+        page_subtitle = (
+            f"Top {PAGE_SIZE} by value · Colour = XIRR"
+            if total_scrips > PAGE_SIZE
+            else "Sized by current value · Colour = XIRR"
+        )
+        section_header(treemap_title, page_subtitle)
+    with th2:
+        if total_pages > 1:
+            pc1, pc2, pc3 = st.columns([1, 2, 1])
+            with pc1:
+                if st.button("◀", key="tree_prev",
+                             disabled=(page == 0), width="stretch"):
+                    st.session_state["treemap_page"] -= 1
+                    st.rerun()
+            with pc2:
+                st.markdown(
+                    f'<div style="text-align:center;padding-top:8px;'
+                    f'font-size:0.85rem;color:{GREY}">'
+                    f'Page {page + 1} / {total_pages}'
+                    f'<br><span style="font-size:0.72rem">'
+                    f'scrips {page * PAGE_SIZE + 1}–{min((page+1)*PAGE_SIZE, total_scrips)} of {total_scrips}'
+                    f'</span></div>',
+                    unsafe_allow_html=True,
+                )
+            with pc3:
+                if st.button("▶", key="tree_next",
+                             disabled=(page >= total_pages - 1), width="stretch"):
+                    st.session_state["treemap_page"] += 1
+                    st.rerun()
+
+    # Render treemap for current page slice
+    # Pass as generic scrip dicts — portfolio_treemap filters by type="SCRIP"
+    fig_tree = portfolio_treemap(page_scrips)
     st.plotly_chart(fig_tree, width='stretch', config={"displayModeBar": False})
 
 with right:

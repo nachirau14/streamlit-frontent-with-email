@@ -155,9 +155,13 @@ def xirr_history_chart(history: list[dict], title: str = "XIRR History") -> go.F
 
 
 def portfolio_treemap(scrips: list[dict]) -> go.Figure:
-    """Treemap sized by current_value, coloured by xirr_pct."""
+    """Treemap sized by current_value, coloured by xirr_pct.
+    Accepts either full snapshot dicts (filters type=SCRIP) or a pre-filtered list.
+    """
     df = pd.DataFrame([
-        s for s in scrips if s.get("type") == "SCRIP" and s.get("current_value", 0) > 0
+        s for s in scrips
+        if s.get("current_value", 0) > 0
+        and s.get("type", "SCRIP") == "SCRIP"   # default to SCRIP if type absent
     ])
     if df.empty:
         return go.Figure()
