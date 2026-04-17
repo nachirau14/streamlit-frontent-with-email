@@ -10,7 +10,7 @@ from datetime import date
 from utils.data import (
     load_all_latest_xirr, load_xirr_history,
     load_trades_for_scrip, load_all_trades,
-    compute_xirr,
+    compute_xirr, get_company_names,
 )
 from utils.ui import (
     fmt_inr, fmt_pct, fmt_qty, xirr_colour,
@@ -53,11 +53,13 @@ if not scrips:
 query_sym   = st.query_params.get("symbol", "")
 default_idx = scrips.index(query_sym) if query_sym in scrips else 0
 
+# Pre-fetch names for the selectbox labels
+_all_names = get_company_names(scrips)
 selected = st.selectbox(
     "Select scrip",
     scrips,
     index=default_idx,
-    format_func=lambda s: f"  {s}",
+    format_func=lambda s: f"{s}  —  {_all_names[s]}" if _all_names.get(s) else s,
 )
 st.query_params["symbol"] = selected
 
@@ -66,6 +68,10 @@ st.query_params["symbol"] = selected
 snapshot = next((s for s in all_snapshots if s.get("symbol") == selected), {})
 trades   = load_trades_for_scrip(selected)
 history  = load_xirr_history(selected, limit=90)
+
+# Fetch company name from ticker table
+_names      = get_company_names([selected])
+company_name = _names.get(selected, "")
 
 # LMP comes from the snapshot (set by the last Lambda run)
 # All other KPIs are always recomputed from raw trades so they are never stale
@@ -98,14 +104,19 @@ else:
 
 # ── Header ────────────────────────────────────────────────────────────────────
 colour = xirr_colour(xirr)
+_company_html = (
+    f'<div style="font-size:0.95rem;color:#6B7280;margin-top:2px">{company_name}</div>'
+    if company_name else ""
+)
 st.markdown(f"""
 <div style="display:flex;align-items:center;gap:16px;margin-bottom:24px">
     <div style="background:{colour}22;border:1px solid {colour}55;
                 border-radius:12px;padding:10px 20px">
         <div style="font-size:2rem;font-weight:800;color:{colour}">{selected}</div>
+        {_company_html}
     </div>
     <div>
-        <div style="font-size:1rem;color:#6B7280">NSE · Last updated {as_of}</div>
+        <div style="font-size:1rem;color:#6B7280">Last updated {as_of}</div>
         <div style="font-size:1.6rem;font-weight:700;color:{colour}">
             XIRR {fmt_pct(xirr)}
         </div>

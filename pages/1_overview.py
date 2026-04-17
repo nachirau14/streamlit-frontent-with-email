@@ -17,6 +17,7 @@ from utils.data import (
     trigger_lambda,
     compute_xirr,
     fetch_face_values_yfinance,
+    get_company_names,
 )
 from utils.ui import (
     fmt_inr, fmt_pct, fmt_qty, xirr_colour,
@@ -98,6 +99,13 @@ try:
 except Exception:
     pass
 
+# Fetch company names from ticker master table (cached 1h)
+_name_map: dict = {}
+try:
+    _name_map = get_company_names(all_scrips_syms)
+except Exception:
+    pass
+
 # Build full dataframe — all numeric fields computed from raw trades.
 # LMP comes from the snapshot (set by the last Lambda run).
 # Snapshot XIRR % is also used for display so the table matches the Lambda output.
@@ -155,6 +163,7 @@ for sym in all_scrips_syms:
 
     all_rows.append({
         "Symbol":        sym,
+        "Company":       _name_map.get(sym, ""),
         "XIRR %":        xirr_pct,
         "Current Value": cur_val,
         "Invested":      invested,
@@ -566,11 +575,19 @@ def colour_xirr(val):
     if val is None or pd.isna(val): return f"color: {GREY}"
     return f"color: {TEAL}" if val >= 0 else f"color: {RED}"
 
-display_df = df.drop(columns=["_snap"])
+# Build display df — Company right after Symbol
+_col_order = ["Symbol", "Company", "XIRR %", "Current Value", "Invested",
+              "Realised", "Dividends", "Holdings", "Face Value (₹)", "LMP (₹)",
+              "Bonus Shares", "Rights Shares", "As Of", "Broker", "Sector"]
+_base    = df.drop(columns=["_snap"])
+_ordered = [c for c in _col_order if c in _base.columns]
+_extra   = [c for c in _base.columns if c not in _ordered]
+display_df = _base[[*_ordered, *_extra]]
 
 styled = (
     display_df.style
     .format({
+        "Company":       lambda x: x if x else "—",
         "XIRR %":        lambda x: f"{x:+.2f}%" if x is not None and not pd.isna(x) else "—",
         "Current Value": lambda x: fmt_inr(x),
         "Invested":      lambda x: fmt_inr(x),

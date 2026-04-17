@@ -90,6 +90,54 @@ def _from_decimal_list(items: list) -> list[dict]:
     return [_from_decimal(i) for i in items]
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_company_names(symbols: list[str]) -> dict[str, str]:
+    """
+    Return {SYMBOL: company_name} for a list of symbols.
+    Looks up the portfolio_tickers_prod table by pk=exchange#NSE or BSE.
+    Falls back to empty string for any symbol not found.
+    Cached for 1 hour — company names don't change often.
+    """
+    if not symbols:
+        return {}
+    try:
+        cfg = get_aws_config()
+        import boto3 as _boto3
+        ddb      = _boto3.resource(
+            "dynamodb",
+            region_name=cfg["region"],
+            aws_access_key_id=cfg["access_key_id"],
+            aws_secret_access_key=cfg["secret_access_key"],
+        )
+        tbl_name = st.secrets["dynamodb"].get("tickers_table", "")
+        if not tbl_name:
+            return {}
+        tbl    = ddb.Table(tbl_name)
+        result = {}
+        # Batch get: try NSE first, then BSE for misses
+        for exchange in ("NSE", "BSE"):
+            needed = [s for s in symbols if s not in result]
+            if not needed:
+                break
+            # Use batch_get_item for efficiency
+            keys = [{"pk": f"exchange#{exchange}", "sk": f"ticker#{s}"} for s in needed]
+            # DynamoDB batch_get supports max 100 keys
+            for i in range(0, len(keys), 100):
+                chunk  = keys[i:i+100]
+                resp   = ddb.batch_get_item(
+                    RequestItems={tbl_name: {"Keys": chunk}}
+                )
+                for item in resp.get("Responses", {}).get(tbl_name, []):
+                    sym  = str(item.get("symbol", "")).upper()
+                    name = str(item.get("company_name", ""))
+                    if sym and name:
+                        result[sym] = name
+        return result
+    except Exception as exc:
+        logger.debug("get_company_names failed: %s", exc)
+        return {}
+
+
 def _notify(*args, fn_name: str, **kwargs):
     """Fire-and-forget email notification. Never raises."""
     try:
