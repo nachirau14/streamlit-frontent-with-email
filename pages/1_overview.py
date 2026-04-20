@@ -4,6 +4,8 @@ Filters (broker / sector / XIRR / search) appear first.
 All KPIs, charts, treemap, and the Recalculate button respond to the filtered set.
 """
 import streamlit as st
+import logging
+logger = logging.getLogger(__name__)
 import pandas as pd
 from datetime import date
 
@@ -82,8 +84,13 @@ except Exception:
     all_snapshots = []
 
 # Build a quick lookup: symbol → snapshot
-_snapshot_map: dict = {s.get("symbol", ""): s
-                       for s in all_snapshots if s.get("type") == "SCRIP"}
+# Filter by pk prefix scrip# to exclude the PORTFOLIO row and email config items,
+# but do NOT filter by type= since older snapshots may not have that field.
+_snapshot_map: dict = {
+    s.get("symbol", ""): s
+    for s in all_snapshots
+    if str(s.get("pk", "")).startswith("scrip#") and s.get("symbol")
+}
 
 # all_scrips is now driven by trades, not snapshots
 all_scrips_syms = sorted(_all_trades_map.keys())
@@ -119,9 +126,16 @@ for sym in all_scrips_syms:
     sectors        = " | ".join(sorted(_tags(sym, "sector")))
     trades_for_sym = _all_trades_map.get(sym, [])
 
-    if trades_for_sym and lmp_val > 0:
-        # Full compute from raw trades — always accurate
-        _c = _compute_xirr(trades_for_sym, lmp_val, date.today().isoformat())
+    _c = {}
+    if trades_for_sym:
+        try:
+            _lmp_for_calc = lmp_val if lmp_val > 0 else 0.01
+            _c = _compute_xirr(trades_for_sym, _lmp_for_calc, date.today().isoformat())
+        except Exception as _exc:
+            logger.warning("compute_xirr failed for %s: %s", sym, _exc)
+            _c = {}
+
+    if trades_for_sym and lmp_val > 0 and _c:
         xirr_pct  = _c.get("xirr_pct")
         cur_val   = _c.get("current_value",   0)
         invested  = _c.get("total_invested",  0)
@@ -130,12 +144,10 @@ for sym in all_scrips_syms:
         holdings  = _c.get("holdings_qty",    0)
         bonus     = _c.get("bonus_shares",    0)
         rights    = _c.get("rights_shares",   0)
-    elif trades_for_sym:
-        # Trades exist but no LMP yet — compute invested/holdings from trades,
-        # show XIRR and current value as None until Lambda runs
-        _c = _compute_xirr(trades_for_sym, 0.01, date.today().isoformat())
-        xirr_pct  = None          # can't compute without a real price
-        cur_val   = None          # unknown without LMP
+    elif trades_for_sym and _c:
+        # Trades exist but no LMP — show cost metrics, not current value/XIRR
+        xirr_pct  = None
+        cur_val   = None
         invested  = _c.get("total_invested",  0)
         realised  = _c.get("total_realised",  0)
         dividends = _c.get("total_dividends", 0)
@@ -144,13 +156,13 @@ for sym in all_scrips_syms:
         rights    = _c.get("rights_shares",   0)
     else:
         xirr_pct  = None
-        cur_val   = 0.0
-        invested  = 0.0
-        realised  = 0.0
-        dividends = 0.0
-        holdings  = 0.0
-        bonus     = 0.0
-        rights    = 0.0
+        cur_val   = None if trades_for_sym else 0.0
+        invested  = snap.get("total_invested",  0) or 0.0
+        realised  = snap.get("total_realised",  0) or 0.0
+        dividends = snap.get("total_dividends", 0) or 0.0
+        holdings  = snap.get("holdings_qty",    0) or 0.0
+        bonus     = snap.get("bonus_shares",    0) or 0.0
+        rights    = snap.get("rights_shares",   0) or 0.0
 
     # Face value priority:
     # 1. SPLIT trade record (user-specified, most accurate)
