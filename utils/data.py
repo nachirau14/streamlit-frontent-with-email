@@ -1186,9 +1186,12 @@ def trigger_lambda(symbols: list[str] | None = None) -> tuple[bool, str]:
             )
             if failed:
                 msg += f" {failed} scrip(s) failed — check Lambda logs."
-            # Bust caches so dashboard shows fresh data immediately
+            # Bust all caches so dashboard shows fresh data immediately
             load_all_latest_xirr.clear()
             load_xirr_history.clear()
+            load_all_trades.clear()
+            load_trades_for_scrip.clear()
+            load_snapshot_on_date.clear()
             return True, msg
 
         return False, f"Lambda returned unexpected status {status}."
