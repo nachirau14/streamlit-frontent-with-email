@@ -11,6 +11,7 @@ from utils.data import (
     load_all_trades,
     load_broker_configs,
     get_all_broker_names,
+    calc_broker_charges,
     search_tickers,
     NSE_SECTORS,
 )
@@ -457,104 +458,25 @@ with tab_brokers:
     </div>
     """, unsafe_allow_html=True)
 
-    broker_configs = load_broker_configs()
+    # Broker management has moved to the dedicated Broker Config page
+    broker_configs   = load_broker_configs()
+    all_broker_names = get_all_broker_names()
 
-    if broker_configs:
-        section_header("Configured Brokers")
-        rows = [{
-            "Broker":           c.get("broker_name", c.get("broker_key")),
-            "Key":              c.get("broker_key", ""),
-            "Buy %":            float(c.get("buy_pct", 0)),
-            "Buy Min (Rs.)":    float(c.get("buy_min", 0)),
-            "Sell %":           float(c.get("sell_pct", 0)),
-            "Sell Min (Rs.)":   float(c.get("sell_min", 0)),
-            "Rights %":         float(c.get("rights_pct", 0)),
-            "Rights Min (Rs.)": float(c.get("rights_min", 0)),
-        } for c in broker_configs]
-        st.dataframe(
-            pd.DataFrame(rows).style.format({
-                "Buy %": "{:.4g}%", "Sell %": "{:.4g}%", "Rights %": "{:.4g}%",
-                "Buy Min (Rs.)":    "Rs.{:.0f}",
-                "Sell Min (Rs.)":   "Rs.{:.0f}",
-                "Rights Min (Rs.)": "Rs.{:.0f}",
-            }).hide(axis="index"),
-            width='stretch', height=min(300, 60 + len(rows) * 35),
-        )
+    section_header("Configured Brokers")
+    if all_broker_names:
+        for name in all_broker_names:
+            st.markdown(
+                f'<div style="background:{CARD_BG};border:1px solid {BORDER};'
+                f'border-radius:8px;padding:8px 16px;margin-bottom:4px">'
+                f'{name}</div>',
+                unsafe_allow_html=True,
+            )
+    else:
+        st.info("No brokers yet. They are added automatically when you record trades.")
 
-    section_header("Add / Edit Broker")
-    existing_keys = [c.get("broker_key") for c in broker_configs]
-    edit_options  = ["-- Add new --"] + existing_keys
-    edit_choice   = st.selectbox("Edit or add", edit_options, label_visibility="collapsed")
-    edit_cfg      = next((c for c in broker_configs if c.get("broker_key") == edit_choice), {})                     if edit_choice != "-- Add new --" else {}
-
-    with st.form("broker_form"):
-        bf1, bf2 = st.columns(2)
-        with bf1:
-            if edit_choice == "-- Add new --":
-                new_options = ["CUSTOM"] + [k for k in DEFAULT_BROKERS if k not in existing_keys]
-                b_key_sel   = st.selectbox("Select or use CUSTOM", new_options)
-                b_key       = st.text_input("Key (CAPS)", value="" if b_key_sel == "CUSTOM" else b_key_sel,
-                                             placeholder="MY_BROKER").strip().upper()
-                b_name      = st.text_input("Display name", value=b_key.replace("_", " ").title())
-            else:
-                b_key  = edit_choice
-                b_name = st.text_input("Display name", value=edit_cfg.get("broker_name", edit_choice))
-                st.caption(f"Key: `{b_key}`")
-        with bf2:
-            st.markdown(f'<div style="background:{CARD_BG};border:1px solid {BORDER};border-radius:8px;'
-                        f'padding:10px 14px;font-size:0.82rem;color:{GREY};margin-top:28px">'
-                        f'Charges = max(value × rate%, min)<br>'
-                        f'e.g. Rs.1L at 0.03% = Rs.30 &gt; Rs.20 min</div>', unsafe_allow_html=True)
-
-        r1, r2, r3 = st.columns(3)
-        with r1:
-            st.markdown("**BUY**")
-            buy_pct = st.number_input("Rate %", min_value=0.0, value=float(edit_cfg.get("buy_pct", 0.03)),
-                                       step=0.001, format="%.4f", key="buy_pct")
-            buy_min = st.number_input("Min (Rs.)", min_value=0.0, value=float(edit_cfg.get("buy_min", 20.0)),
-                                       step=1.0, format="%.0f", key="buy_min")
-        with r2:
-            st.markdown("**SELL**")
-            sell_pct = st.number_input("Rate %", min_value=0.0, value=float(edit_cfg.get("sell_pct", 0.03)),
-                                        step=0.001, format="%.4f", key="sell_pct")
-            sell_min = st.number_input("Min (Rs.)", min_value=0.0, value=float(edit_cfg.get("sell_min", 20.0)),
-                                        step=1.0, format="%.0f", key="sell_min")
-        with r3:
-            st.markdown("**RIGHTS**")
-            rights_pct = st.number_input("Rate %", min_value=0.0, value=float(edit_cfg.get("rights_pct", 0.03)),
-                                          step=0.001, format="%.4f", key="rights_pct")
-            rights_min = st.number_input("Min (Rs.)", min_value=0.0, value=float(edit_cfg.get("rights_min", 20.0)),
-                                          step=1.0, format="%.0f", key="rights_min")
-
-        save_clicked = st.form_submit_button("Save broker config", type="primary", width='stretch')
-
-    if save_clicked:
-        fk = b_key if edit_choice == "-- Add new --" else edit_choice
-        if not fk:
-            st.error("Broker key is required.")
-        else:
-            try:
-                save_broker_config({"broker_key": fk, "broker_name": b_name or fk,
-                                     "buy_pct": buy_pct, "buy_min": buy_min,
-                                     "sell_pct": sell_pct, "sell_min": sell_min,
-                                     "rights_pct": rights_pct, "rights_min": rights_min})
-                st.success(f"Broker **{b_name or fk}** saved.")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Failed to save: {e}")
-
-    if broker_configs:
-        st.markdown("---")
-        section_header("Delete Broker")
-        dc, bc = st.columns([2, 1])
-        with dc:
-            del_choice = st.selectbox("Select broker", existing_keys, label_visibility="collapsed")
-        with bc:
-            st.markdown("<div style='height:26px'/>", unsafe_allow_html=True)
-            if st.button("Delete", type="primary", width='stretch'):
-                try:
-                    delete_broker_config(del_choice)
-                    st.success(f"Broker `{del_choice}` deleted.")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Failed: {e}")
+    st.markdown("---")
+    st.info(
+        "To add, rename, or remove brokers go to **🏦 Broker Config** in the sidebar. "
+        "Brokers are also added automatically when trades are recorded or uploaded.",
+        icon="ℹ️",
+    )
