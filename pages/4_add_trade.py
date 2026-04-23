@@ -176,9 +176,11 @@ with tab_add:
             broker_key_map[bname] = bkey
 
     try:
-        trade_symbols = set(load_all_trades().keys())
+        all_trades_raw = load_all_trades()
+        trade_symbols  = set(all_trades_raw.keys())
     except Exception:
-        trade_symbols = set()
+        all_trades_raw = {}
+        trade_symbols  = set()
     # Merge user's own scrips with the curated NSE ticker list
     known_symbols = sorted(trade_symbols | set(_NSE_TICKERS))
 
@@ -207,6 +209,20 @@ with tab_add:
 
     st.markdown("#### 2 — Trade details")
 
+    # Apply autofill from existing scrip if available
+    _autofill_broker = st.session_state.pop("autofill_broker", None)
+    _autofill_sector = st.session_state.pop("autofill_sector", None)
+    if _autofill_broker:
+        # Find display name for the broker key
+        _matched = next(
+            (name for name in all_broker_names
+             if name.upper().replace(" ", "_") == _autofill_broker.upper()
+             or name.upper() == _autofill_broker.upper()),
+            None
+        )
+        if _matched and _matched in broker_options:
+            st.session_state["form_broker"] = _matched
+
     if "form_broker" not in st.session_state:
         st.session_state["form_broker"] = "(none)"
 
@@ -218,13 +234,24 @@ with tab_add:
             index=broker_options.index(st.session_state["form_broker"])
                   if st.session_state["form_broker"] in broker_options else 0,
             key="pre_broker_select",
-            help="Select broker to auto-calculate charges. Add brokers in Manage Brokers tab.",
+            help="Auto-filled from your last trade for this scrip. Change if needed.",
         )
         st.session_state["form_broker"] = selected_broker_name
     with pre2:
+        # Find sector index for autofill
+        _sector_list = ["(none)"] + NSE_SECTORS
+        _sector_idx  = 0
+        if _autofill_sector:
+            # Match case-insensitively
+            for _i, _s in enumerate(_sector_list):
+                if _s.upper() == _autofill_sector.upper():
+                    _sector_idx = _i
+                    break
         selected_sector = st.selectbox(
-            "Sector", ["(none)"] + NSE_SECTORS, key="pre_sector_select",
-            help="Tag with NSE sector for sector-level XIRR analysis.",
+            "Sector", _sector_list,
+            index=_sector_idx,
+            key="pre_sector_select",
+            help="Auto-filled from your last trade for this scrip. Change if needed.",
         )
 
     # Symbol input with live DynamoDB ticker search
@@ -265,6 +292,21 @@ with tab_add:
                         st.session_state["sym_confirmed"] = s["symbol"]
                         st.session_state["sym_fv"]        = s.get("face_value", 10.0)
                         st.session_state["sym_name"]      = s.get("company_name", "")
+                        # Auto-fill broker/sector from most recent trade for this scrip
+                        _existing = trade_symbols  # already loaded above
+                        if s["symbol"] in _existing:
+                            _prev = sorted(
+                                all_trades_raw.get(s["symbol"], []),
+                                key=lambda t: t.get("trade_date", ""),
+                                reverse=True,
+                            )
+                            if _prev:
+                                _b = _prev[0].get("broker", "")
+                                _s = _prev[0].get("sector", "")
+                                if _b:
+                                    st.session_state["autofill_broker"] = _b
+                                if _s:
+                                    st.session_state["autofill_sector"] = _s
                         st.rerun()
         elif confirmed and confirmed == typed_upper:
             name   = st.session_state.get("sym_name", "")
@@ -303,9 +345,27 @@ with tab_add:
         if typed_upper != confirmed and confirmed:
             st.session_state["sym_confirmed"] = ""
             st.session_state["sym_name"] = ""
+            st.session_state.pop("autofill_broker", None)
+            st.session_state.pop("autofill_sector", None)
             confirmed = ""
 
         symbol_input = confirmed if (confirmed and confirmed == typed_upper) else typed_upper
+
+        # Auto-fill broker/sector when typing a symbol that already exists in trades
+        # (for manually typed symbols not selected from suggestion buttons)
+        if symbol_input and symbol_input in trade_symbols and not st.session_state.get("autofill_broker"):
+            _prev = sorted(
+                all_trades_raw.get(symbol_input, []),
+                key=lambda t: t.get("trade_date", ""),
+                reverse=True,
+            )
+            if _prev:
+                _b = _prev[0].get("broker", "")
+                _s = _prev[0].get("sector", "")
+                if _b:
+                    st.session_state["autofill_broker"] = _b
+                if _s:
+                    st.session_state["autofill_sector"] = _s
 
     with date_col:
         trade_date = st.date_input(
