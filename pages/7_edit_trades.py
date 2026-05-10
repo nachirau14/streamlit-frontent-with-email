@@ -9,6 +9,7 @@ from datetime import date
 from utils.data import (
     load_all_trades, load_trades_for_scrip,
     delete_record, update_record, rename_symbol_record,
+    notify_bulk_delete_summary,
     search_tickers, VALID_ACTIONS,
 )
 from utils.ui import (
@@ -127,12 +128,19 @@ with tab_bulk:
                 success = failed = 0
                 for row in preview_rows:
                     try:
-                        delete_record(row["_pk"], row["_sk"], symbol=row["Symbol"])
+                        # notify=False — we send one summary email below
+                        delete_record(row["_pk"], row["_sk"],
+                                      symbol=row["Symbol"], notify=False)
                         success += 1
                     except Exception as exc:
                         st.error(f"{row['Symbol']} {row['Date']}: {exc}")
                         failed += 1
                 if success:
+                    # One summary email for the whole bulk delete
+                    try:
+                        notify_bulk_delete_summary(sel_syms, success)
+                    except Exception:
+                        pass
                     st.cache_data.clear()
                     st.success(
                         f"✅ Deleted {success} record(s)" +

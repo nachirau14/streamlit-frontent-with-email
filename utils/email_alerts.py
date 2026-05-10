@@ -281,6 +281,36 @@ def notify_trade_deleted(pk: str, sk: str, symbol: str = "") -> None:
     _send(subject, html)
 
 
+def _html_bulk_delete_email(symbols: list[str], count: int) -> tuple[str, str]:
+    from datetime import datetime
+    ts      = datetime.now().strftime("%d %b %Y, %I:%M %p")
+    sym_list = ", ".join(sorted(set(symbols)))
+    subject = f"[XIRR Tracker] BULK DELETE: {count} records removed for {sym_list}"
+    body = f"""<!DOCTYPE html><html><head><style>{_BASE_STYLE}</style></head><body>
+<div class="card">
+  <div class="header" style="color:{_ACTION_COLOUR.get('DELETE','#DC2626')}">
+    Portfolio XIRR Tracker</div>
+  <div class="sub">{ts}</div>
+  <div style="margin-bottom:20px">{_badge("DELETE")}
+    <span style="font-size:1rem;margin-left:10px;font-weight:700">Bulk Delete</span>
+  </div>
+  <table>
+    <tr><td>Scrips</td>       <td>{sym_list}</td></tr>
+    <tr><td>Records removed</td><td>{count}</td></tr>
+  </table>
+  <div class="footer">Sent by Portfolio XIRR Tracker · AWS SES</div>
+</div></body></html>"""
+    return subject, body
+
+
+def notify_bulk_delete_summary(symbols: list[str], count: int) -> None:
+    """Send one summary email after a bulk delete — called once, not per record."""
+    if not _alert_enabled("alert_trade_del"):
+        return
+    subject, html = _html_bulk_delete_email(symbols, count)
+    _send(subject, html)
+
+
 def notify_bulk_upload(written: int, errors: int, symbols: list[str]) -> None:
     """Call after a bulk upload completes."""
     if not _alert_enabled("alert_bulk"):

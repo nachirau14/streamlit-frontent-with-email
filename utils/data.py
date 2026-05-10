@@ -138,6 +138,11 @@ def get_company_names(symbols: list[str]) -> dict[str, str]:
         return {}
 
 
+def notify_bulk_delete_summary(symbols: list[str], count: int) -> None:
+    """Send one summary email after a bulk delete operation."""
+    _notify(symbols, count, fn_name="notify_bulk_delete_summary")
+
+
 def _notify(*args, fn_name: str, **kwargs):
     """Fire-and-forget email notification. Never raises."""
     try:
@@ -538,14 +543,17 @@ def batch_put_records(records: list[dict]) -> tuple[int, list[str]]:
     return written, errors
 
 
-def delete_record(pk: str, sk: str, symbol: str = "") -> None:
-    """Delete a single trade record by its primary key."""
+def delete_record(pk: str, sk: str, symbol: str = "", notify: bool = True) -> None:
+    """Delete a single trade record by its primary key.
+    Set notify=False to suppress the per-record email (e.g. during bulk delete).
+    """
     _get_table("trades_table").delete_item(Key={"pk": pk, "sk": sk})
     load_trades_for_scrip.clear()
     load_all_trades.clear()
     load_all_latest_xirr.clear()
     load_xirr_history.clear()
-    _notify(pk, sk, symbol, fn_name="notify_trade_deleted")
+    if notify:
+        _notify(pk, sk, symbol, fn_name="notify_trade_deleted")
 
 
 def rename_symbol_record(pk: str, sk: str, new_symbol: str, existing_record: dict) -> str:
@@ -1216,6 +1224,10 @@ def _parse_date(d):
 
 
 def _xirr_newton(cashflows: list[tuple[date, float]], guess: float = 0.1) -> float | None:
+    """
+    Newton-Raphson XIRR. Tries multiple starting guesses to improve convergence
+    for extreme returns (very high XIRR like multibaggers, or near-zero for new trades).
+    """
     if not cashflows:
         return None
     dates, amounts = zip(*cashflows)
@@ -1235,25 +1247,35 @@ def _xirr_newton(cashflows: list[tuple[date, float]], guess: float = 0.1) -> flo
         except (ZeroDivisionError, OverflowError):
             return 0.0
 
-    rate = guess
-    for _ in range(1000):
-        # Guard: (1 + rate) must stay positive to avoid complex numbers
-        # from fractional exponentiation of negative base
-        if rate <= -1.0:
-            rate = -0.9
-        npv, dnpv = _npv(rate), _dnpv(rate)
-        if abs(dnpv) < 1e-12:
-            break
-        new_rate = rate - npv / dnpv
-        # Clamp to avoid divergence below -1
-        new_rate = max(new_rate, -0.9999)
-        if abs(new_rate - rate) < 1e-8:
-            result = new_rate
-            # Final safety: return None if result is complex or non-finite
-            if isinstance(result, complex) or not (-1 < result < 100):
-                return None
-            return float(result)
-        rate = new_rate
+    def _try_guess(start: float) -> float | None:
+        rate = start
+        for _ in range(1000):
+            if rate <= -1.0:
+                rate = -0.9
+            npv  = _npv(rate)
+            dnpv = _dnpv(rate)
+            if abs(dnpv) < 1e-12:
+                break
+            new_rate = rate - npv / dnpv
+            new_rate = max(new_rate, -0.9999)
+            if abs(new_rate - rate) < 1e-8:
+                result = new_rate
+                # Must be real, finite, and > -100% (total loss floor)
+                if isinstance(result, complex):
+                    return None
+                if not (-1.0 < result < 1e6):   # allow up to 100,000,000% — no practical upper limit
+                    return None
+                if abs(_npv(result)) > 1.0:      # sanity: NPV should be near 0 at solution
+                    return None
+                return float(result)
+            rate = new_rate
+        return None
+
+    # Try multiple starting guesses — important for multibaggers and very short holding periods
+    for guess in (0.1, 0.5, 1.0, 5.0, 10.0, 50.0, -0.5, 0.01):
+        result = _try_guess(guess)
+        if result is not None:
+            return result
 
     return None
 
