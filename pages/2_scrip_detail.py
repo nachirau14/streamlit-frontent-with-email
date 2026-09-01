@@ -20,6 +20,76 @@ from utils.ui import (
     ACTION_COLOURS, LAYOUT_DEFAULTS,
 )
 
+# ── Price history fetch ──────────────────────────────────────────────────────
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _fetch_price_history(symbol: str, period: str) -> pd.DataFrame:
+    """
+    Fetch OHLCV history from yfinance for NSE (falls back to BSE).
+    period: '1d' '5d' '1mo' '1y' '5y'
+    Returns DataFrame with DatetimeIndex and 'Close' column, empty if unavailable.
+    """
+    try:
+        import yfinance as yf
+        interval_map = {
+            "1d": "5m", "5d": "30m", "1mo": "1d",
+            "1y": "1d", "5y": "1wk",
+        }
+        interval = interval_map.get(period, "1d")
+        # Try NSE first then BSE
+        for suffix in (".NS", ".BO"):
+            ticker = yf.Ticker(f"{symbol}{suffix}")
+            df = ticker.history(period=period, interval=interval, auto_adjust=True)
+            if df is not None and not df.empty and "Close" in df.columns:
+                df = df[["Close"]].dropna()
+                df.index = pd.to_datetime(df.index).tz_localize(None)
+                return df
+    except Exception:
+        pass
+    return pd.DataFrame()
+
+
+def _price_chart(df: pd.DataFrame, symbol: str, period: str) -> go.Figure:
+    """Render a clean price chart from a Close-column DataFrame."""
+    if df.empty:
+        return go.Figure()
+    first = float(df["Close"].iloc[0])
+    last  = float(df["Close"].iloc[-1])
+    colour = "#00A88A" if last >= first else "#E53E3E"
+    pct    = (last - first) / first * 100 if first else 0
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=df.index, y=df["Close"],
+        mode="lines",
+        line=dict(color=colour, width=2),
+        fill="tozeroy",
+        fillcolor=colour + "18",
+        hovertemplate="₹%{y:,.2f}<extra></extra>",
+    ))
+    fig.update_layout(
+        **{
+            "paper_bgcolor": "#FFFFFF",
+            "plot_bgcolor":  "#F4F6F8",
+            "font": dict(color="#111827", family="Inter, sans-serif"),
+            "xaxis": dict(gridcolor="#E2E8F0", showgrid=True, zeroline=False,
+                          showspikes=True, spikecolor="#6B7280", spikethickness=1),
+            "yaxis": dict(gridcolor="#E2E8F0", showgrid=True, zeroline=False,
+                          tickprefix="₹", tickformat=",.0f"),
+            "margin": dict(l=0, r=0, t=36, b=0),
+            "height": 260,
+            "showlegend": False,
+        },
+        title=dict(
+            text=f"{symbol}  <span style='color:{colour};font-size:0.9em'>"
+                 f"{'+' if pct>=0 else ''}{pct:.2f}% ({period})</span>",
+            font=dict(size=14),
+            x=0,
+        ),
+    )
+    return fig
+
+
 # ── Sidebar nav ───────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown('<div style="font-size:1.3rem;font-weight:800;color:#00A88A;padding:16px 0 24px">📈 XIRR Tracker</div>', unsafe_allow_html=True)
@@ -175,6 +245,77 @@ with right:
         st.plotly_chart(waterfall_chart(snapshot),
                         width='stretch', config={"displayModeBar": False})
 
+
+# ── Stock price history ──────────────────────────────────────────────────────
+section_header("Price History", "Historical market price · from Yahoo Finance")
+
+_PERIODS = {
+    "1 Day":  "1d",
+    "1 Week": "5d",
+    "1 Month":"1mo",
+    "1 Year": "1y",
+    "5 Years":"5y",
+}
+_period_key = f"price_period_{selected}"
+if _period_key not in st.session_state:
+    st.session_state[_period_key] = "1y"
+
+# Period selector buttons
+btn_cols = st.columns(len(_PERIODS))
+for i, (label, code) in enumerate(_PERIODS.items()):
+    with btn_cols[i]:
+        is_active = (st.session_state[_period_key] == code)
+        if st.button(
+            label,
+            key=f"period_{selected}_{code}",
+            type="primary" if is_active else "secondary",
+            width="stretch",
+        ):
+            st.session_state[_period_key] = code
+            st.rerun()
+
+selected_period = st.session_state[_period_key]
+
+with st.spinner(f"Loading {selected_period} price data…"):
+    _hist_df = _fetch_price_history(selected, selected_period)
+
+if _hist_df.empty:
+    st.info(
+        f"No price data available for {selected} on Yahoo Finance. "
+        "The scrip may be BSE-only or delisted."
+    )
+else:
+    st.plotly_chart(
+        _price_chart(_hist_df, selected, selected_period),
+        width="stretch",
+        config={"displayModeBar": False},
+    )
+    # Quick stats row
+    _first  = float(_hist_df["Close"].iloc[0])
+    _last   = float(_hist_df["Close"].iloc[-1])
+    _high   = float(_hist_df["Close"].max())
+    _low    = float(_hist_df["Close"].min())
+    _chg    = _last - _first
+    _chgpct = (_chg / _first * 100) if _first else 0
+    _colour = "#00A88A" if _chg >= 0 else "#E53E3E"
+    st.markdown(
+        f'<div style="display:flex;gap:24px;flex-wrap:wrap;font-size:0.85rem;'
+        f'padding:8px 2px 16px">'
+        f'<span><span style="color:{GREY}">Open</span>&nbsp;&nbsp;'
+        f'<strong>₹{_first:,.2f}</strong></span>'
+        f'<span><span style="color:{GREY}">Current</span>&nbsp;&nbsp;'
+        f'<strong>₹{_last:,.2f}</strong></span>'
+        f'<span><span style="color:{GREY}">Change</span>&nbsp;&nbsp;'
+        f'<strong style="color:{_colour}">{_chg:+,.2f} ({_chgpct:+.2f}%)</strong></span>'
+        f'<span><span style="color:{GREY}">High</span>&nbsp;&nbsp;'
+        f'<strong style="color:#00A88A">₹{_high:,.2f}</strong></span>'
+        f'<span><span style="color:{GREY}">Low</span>&nbsp;&nbsp;'
+        f'<strong style="color:#E53E3E">₹{_low:,.2f}</strong></span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+st.markdown("---")
 
 # ── Cumulative cost basis chart ───────────────────────────────────────────────
 if trades:
