@@ -9,6 +9,115 @@ logger = logging.getLogger(__name__)
 import pandas as pd
 from datetime import date
 
+import logging as _logging
+_pov_logger = _logging.getLogger(__name__)
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _fetch_portfolio_history(
+    symbols_qty: tuple[tuple[str, float], ...],
+    period: str,
+) -> pd.DataFrame:
+    """
+    Fetch price history for all (symbol, qty) pairs and return a daily
+    portfolio-value series: sum(price_t × qty) for each date t.
+    symbols_qty: tuple of (symbol, holdings_qty) — tuple so it's hashable for cache.
+    period: '1d' '5d' '1mo' '1y' '5y'
+    """
+    import yfinance as yf
+
+    interval_map = {"1d": "5m", "5d": "30m", "1mo": "1d", "1y": "1d", "5y": "1wk"}
+    interval     = interval_map.get(period, "1d")
+
+    price_df = pd.DataFrame()
+    for sym, qty in symbols_qty:
+        for suffix in (".NS", ".BO"):
+            try:
+                df = yf.Ticker(f"{sym}{suffix}").history(
+                    period=period, interval=interval, auto_adjust=True
+                )
+                if df is not None and not df.empty and "Close" in df.columns:
+                    ser = df["Close"].dropna().rename(sym)
+                    ser.index = pd.to_datetime(ser.index).tz_localize(None)
+                    price_df = (
+                        pd.concat([price_df, ser], axis=1)
+                        if not price_df.empty
+                        else ser.to_frame()
+                    )
+                    break
+            except Exception:
+                continue
+
+    if price_df.empty:
+        return pd.DataFrame()
+
+    price_df = price_df.sort_index().ffill()
+
+    # Weighted sum → portfolio value series
+    portfolio_val = pd.Series(0.0, index=price_df.index, dtype=float)
+    for sym, qty in symbols_qty:
+        if sym in price_df.columns:
+            portfolio_val += price_df[sym] * qty
+
+    return portfolio_val.to_frame(name="Value").dropna()
+
+
+def _portfolio_value_chart(
+    df: pd.DataFrame,
+    title: str,
+    period: str,
+) -> "go.Figure":
+    import plotly.graph_objects as _go
+    if df.empty:
+        return _go.Figure()
+
+    first = float(df["Value"].iloc[0])
+    last  = float(df["Value"].iloc[-1])
+    colour = "#00A88A" if last >= first else "#E53E3E"
+    pct    = (last - first) / first * 100 if first else 0
+
+    fig = _go.Figure()
+    fig.add_trace(_go.Scatter(
+        x=df.index, y=df["Value"],
+        mode="lines",
+        line=dict(color=colour, width=2),
+        fill="tozeroy",
+        fillcolor=colour + "15",
+        hovertemplate="₹%{y:,.0f}<extra></extra>",
+    ))
+
+    # Mark today's LMP-based value as a dot
+    fig.add_trace(_go.Scatter(
+        x=[df.index[-1]], y=[last],
+        mode="markers",
+        marker=dict(color=colour, size=7),
+        hovertemplate=f"Current ₹{last:,.0f}<extra></extra>",
+        showlegend=False,
+    ))
+
+    fig.update_layout(
+        paper_bgcolor="#FFFFFF",
+        plot_bgcolor="#F4F6F8",
+        font=dict(color="#111827", family="Inter, sans-serif"),
+        xaxis=dict(gridcolor="#E2E8F0", showgrid=True, zeroline=False,
+                   showspikes=True, spikecolor="#6B7280", spikethickness=1),
+        yaxis=dict(gridcolor="#E2E8F0", showgrid=True, zeroline=False,
+                   tickprefix="₹", tickformat=",.0f"),
+        margin=dict(l=0, r=0, t=42, b=0),
+        height=300,
+        showlegend=False,
+        title=dict(
+            text=(
+                f"{title}  "
+                f"<span style='color:{colour};font-size:0.9em'>"
+                f"{'+' if pct>=0 else ''}{pct:.2f}% ({period})</span>"
+            ),
+            font=dict(size=14), x=0,
+        ),
+    )
+    return fig
+
+
 from utils.data import (
     load_all_latest_xirr,
     load_xirr_history,
@@ -575,6 +684,79 @@ with right:
         )
     elif not hist:
         pass  # already shown info above
+
+    # ── Portfolio value chart (yfinance-backed) ───────────────────────────────
+    st.markdown("<div style='height:12px'/>", unsafe_allow_html=True)
+
+    _PERIODS_OV = {"1D": "1d", "1W": "5d", "1M": "1mo", "1Y": "1y", "5Y": "5y"}
+    _pv_key = "pv_period"
+    if _pv_key not in st.session_state:
+        st.session_state[_pv_key] = "1y"
+
+    pb_cols = st.columns(len(_PERIODS_OV))
+    for _i, (_lbl, _code) in enumerate(_PERIODS_OV.items()):
+        with pb_cols[_i]:
+            _active = st.session_state[_pv_key] == _code
+            if st.button(
+                _lbl, key=f"ov_period_{_code}",
+                type="primary" if _active else "secondary",
+                width="stretch",
+            ):
+                st.session_state[_pv_key] = _code
+                st.rerun()
+
+    _sel_period = st.session_state[_pv_key]
+
+    # Build holdings: (symbol, qty) from filtered compute_xirr results
+    _holdings_pairs: list[tuple[str, float]] = []
+    for _row in all_rows:
+        _sym = _row.get("Symbol", "")
+        _qty = float(_row.get("Holdings") or 0)
+        if _sym and _qty > 0 and _sym in filtered_symbols:
+            _holdings_pairs.append((_sym, _qty))
+
+    if _holdings_pairs:
+        _chart_title = (
+            f"{filter_label} Portfolio Value"
+            if is_filtered and f_count <= 3
+            else "Portfolio Value"
+        )
+        with st.spinner(f"Loading {_sel_period} price history…"):
+            _pv_df = _fetch_portfolio_history(
+                tuple(_holdings_pairs), _sel_period
+            )
+        if _pv_df.empty:
+            st.caption("Price history unavailable — scrips may be BSE-only or delisted.")
+        else:
+            st.plotly_chart(
+                _portfolio_value_chart(_pv_df, _chart_title, _sel_period),
+                width="stretch",
+                config={"displayModeBar": False},
+            )
+            # Stats
+            _pv_first = float(_pv_df["Value"].iloc[0])
+            _pv_last  = float(_pv_df["Value"].iloc[-1])
+            _pv_high  = float(_pv_df["Value"].max())
+            _pv_low   = float(_pv_df["Value"].min())
+            _pv_chg   = _pv_last - _pv_first
+            _pv_pct   = (_pv_chg / _pv_first * 100) if _pv_first else 0
+            _pv_col   = "#00A88A" if _pv_chg >= 0 else "#E53E3E"
+            st.markdown(
+                f'<div style="display:flex;gap:16px;flex-wrap:wrap;'
+                f'font-size:0.82rem;padding:4px 0 8px">'
+                f'<span style="color:{GREY}">Open</span> <strong>{fmt_inr(_pv_first)}</strong>'
+                f'&nbsp;&nbsp;'
+                f'<span style="color:{GREY}">Change</span> '
+                f'<strong style="color:{_pv_col}">{_pv_chg:+,.0f} ({_pv_pct:+.2f}%)</strong>'
+                f'&nbsp;&nbsp;'
+                f'<span style="color:#00A88A">High {fmt_inr(_pv_high)}</span>'
+                f'&nbsp;&nbsp;'
+                f'<span style="color:#E53E3E">Low {fmt_inr(_pv_low)}</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+    else:
+        st.caption("No holdings with current value — add trades and recalculate.")
 
 # ── Scrip table ───────────────────────────────────────────────────────────────
 section_header(
