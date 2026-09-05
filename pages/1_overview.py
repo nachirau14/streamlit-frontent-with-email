@@ -810,3 +810,214 @@ st.download_button(
     file_name=f"portfolio_{filter_label.replace(' ', '_').replace(':', '')}_{date.today()}.csv",
     mime="text/csv",
 )
+
+# ── Price change table ────────────────────────────────────────────────────────
+st.markdown("<div style='height:28px'/>", unsafe_allow_html=True)
+section_header(
+    "Price Performance",
+    "52-week range · period changes · from Yahoo Finance · 25 scrips per page",
+)
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _fetch_price_changes(symbols: tuple[str, ...]) -> pd.DataFrame:
+    """
+    Fetch 52W high/low and 1W/1M/3M/6M/1Y % change for each symbol.
+    Returns a DataFrame with one row per symbol.
+    Cached 30 min — data doesn't change intraday.
+    """
+    import yfinance as yf
+    from datetime import date as _d, timedelta as _td
+
+    rows = []
+    for sym in symbols:
+        try:
+            # Fetch 1Y + a little extra to get 52W properly
+            tk = None
+            hist_1y = pd.DataFrame()
+            for suffix in (".NS", ".BO"):
+                try:
+                    tk = yf.Ticker(f"{sym}{suffix}")
+                    _h = tk.history(period="1y", interval="1d", auto_adjust=True)
+                    if _h is not None and not _h.empty:
+                        hist_1y = _h[["Close", "High", "Low"]].dropna(subset=["Close"])
+                        hist_1y.index = pd.to_datetime(hist_1y.index).tz_localize(None)
+                        break
+                except Exception:
+                    continue
+
+            if hist_1y.empty:
+                rows.append({"Symbol": sym})
+                continue
+
+            closes = hist_1y["Close"]
+            cur    = float(closes.iloc[-1])
+
+            # 52W high/low
+            hi_52w = float(hist_1y["High"].max())
+            lo_52w = float(hist_1y["Low"].min())
+            hi_date = hist_1y["High"].idxmax().strftime("%d-%b-%Y")
+            lo_date = hist_1y["Low"].idxmin().strftime("%d-%b-%Y")
+
+            def _pct_ago(days: int) -> float | None:
+                cutoff = closes.index[-1] - _td(days=days)
+                before = closes[closes.index <= cutoff]
+                if before.empty:
+                    return None
+                p = float(before.iloc[-1])
+                return ((cur - p) / p * 100) if p else None
+
+            rows.append({
+                "Symbol":       sym,
+                "52W High":     hi_52w,
+                "52W High Date": hi_date,
+                "52W Low":      lo_52w,
+                "52W Low Date": lo_date,
+                "1W Chg %":     _pct_ago(7),
+                "1M Chg %":     _pct_ago(30),
+                "3M Chg %":     _pct_ago(90),
+                "6M Chg %":     _pct_ago(180),
+                "1Y Chg %":     _pct_ago(365),
+                "Current":      cur,
+            })
+        except Exception:
+            rows.append({"Symbol": sym})
+
+    return pd.DataFrame(rows)
+
+
+# Only show for the filtered set (up to all scrips)
+_pt_symbols = tuple(
+    r["Symbol"] for r in all_rows
+    if r.get("Symbol") in filtered_symbols
+)
+
+if _pt_symbols:
+    # Pagination — 25 per page
+    _PT_PAGE_SIZE = 25
+    _pt_total     = len(_pt_symbols)
+    _pt_pages     = max(1, (_pt_total + _PT_PAGE_SIZE - 1) // _PT_PAGE_SIZE)
+
+    if "pt_page" not in st.session_state:
+        st.session_state["pt_page"] = 0
+    st.session_state["pt_page"] = min(st.session_state["pt_page"], _pt_pages - 1)
+    _pt_page = st.session_state["pt_page"]
+
+    _pt_slice = _pt_symbols[_pt_page * _PT_PAGE_SIZE : (_pt_page + 1) * _PT_PAGE_SIZE]
+
+    with st.spinner("Loading price performance data…"):
+        _pt_df = _fetch_price_changes(_pt_slice)
+
+    if not _pt_df.empty and "52W High" in _pt_df.columns:
+        # Merge company names
+        _pt_df["Company Name"] = _pt_df["Symbol"].map(
+            lambda s: _name_map.get(s, "")
+        )
+
+        # Format for display
+        def _fmt_pct_cell(v):
+            if v is None or pd.isna(v):
+                return "—"
+            colour = "#00A88A" if v >= 0 else "#E53E3E"
+            arrow  = "▲" if v >= 0 else "▼"
+            return f"{arrow} {abs(v):.2f}%"
+
+        def _fmt_52w(hi, hi_d, lo, lo_d):
+            return f"{hi:,.2f}\n{hi_d}", f"{lo:,.2f}\n{lo_d}"
+
+        # Build styled display
+        disp = pd.DataFrame({
+            "Company Name": _pt_df["Company Name"],
+            "Symbol":       _pt_df["Symbol"],
+            "52W High":     _pt_df.get("52W High"),
+            "52W High Date":_pt_df.get("52W High Date", ""),
+            "52W Low":      _pt_df.get("52W Low"),
+            "52W Low Date": _pt_df.get("52W Low Date", ""),
+            "Current (₹)":  _pt_df.get("Current"),
+            "1W Chg %":     _pt_df.get("1W Chg %"),
+            "1M Chg %":     _pt_df.get("1M Chg %"),
+            "3M Chg %":     _pt_df.get("3M Chg %"),
+            "6M Chg %":     _pt_df.get("6M Chg %"),
+            "1Y Chg %":     _pt_df.get("1Y Chg %"),
+        }).reset_index(drop=True)
+
+        def _style_row(row):
+            styles = [""] * len(row)
+            for i, col in enumerate(row.index):
+                if col.endswith("Chg %"):
+                    v = row[col]
+                    if v is not None and not pd.isna(v):
+                        styles[i] = f"color: {'#00A88A' if v >= 0 else '#E53E3E'}; font-weight: 600"
+            return styles
+
+        def _fmt_price(v):
+            if v is None or pd.isna(v): return "—"
+            return f"₹{v:,.2f}"
+
+        def _fmt_pct(v):
+            if v is None or pd.isna(v): return "—"
+            return f"{'+' if v >= 0 else ''}{v:.2f}%"
+
+        styled_pt = (
+            disp.style
+            .format({
+                "52W High":    _fmt_price,
+                "52W Low":     _fmt_price,
+                "Current (₹)": _fmt_price,
+                "1W Chg %":    _fmt_pct,
+                "1M Chg %":    _fmt_pct,
+                "3M Chg %":    _fmt_pct,
+                "6M Chg %":    _fmt_pct,
+                "1Y Chg %":    _fmt_pct,
+            })
+            .apply(_style_row, axis=1)
+            .map(lambda v: f"color: {GREY}; font-size: 0.8rem",
+                 subset=["52W High Date", "52W Low Date"])
+            .hide(axis="index")
+        )
+
+        st.dataframe(
+            styled_pt,
+            width="stretch",
+            height=min(820, 60 + len(disp) * 36),
+            hide_index=True,
+            column_config={
+                "Symbol":        st.column_config.TextColumn(width="small"),
+                "Company Name":  st.column_config.TextColumn(width="medium"),
+                "52W High":      st.column_config.NumberColumn("52W High", format="₹%.2f", width="small"),
+                "52W High Date": st.column_config.TextColumn("Date", width="small"),
+                "52W Low":       st.column_config.NumberColumn("52W Low",  format="₹%.2f", width="small"),
+                "52W Low Date":  st.column_config.TextColumn("Date", width="small"),
+                "Current (₹)":   st.column_config.NumberColumn("Current", format="₹%.2f", width="small"),
+                "1W Chg %":      st.column_config.NumberColumn("1W Chg %",  format="%.2f%%", width="small"),
+                "1M Chg %":      st.column_config.NumberColumn("1M Chg %",  format="%.2f%%", width="small"),
+                "3M Chg %":      st.column_config.NumberColumn("3M Chg %",  format="%.2f%%", width="small"),
+                "6M Chg %":      st.column_config.NumberColumn("6M Chg %",  format="%.2f%%", width="small"),
+                "1Y Chg %":      st.column_config.NumberColumn("1Y Chg %",  format="%.2f%%", width="small"),
+            },
+        )
+
+        # Pagination controls
+        if _pt_pages > 1:
+            pg1, pg2, pg3 = st.columns([1, 3, 1])
+            with pg1:
+                if st.button("◀ Prev", key="pt_prev",
+                             disabled=(_pt_page == 0), width="stretch"):
+                    st.session_state["pt_page"] -= 1
+                    st.rerun()
+            with pg2:
+                _start = _pt_page * _PT_PAGE_SIZE + 1
+                _end   = min((_pt_page + 1) * _PT_PAGE_SIZE, _pt_total)
+                st.markdown(
+                    f'<div style="text-align:center;padding-top:8px;color:{GREY};font-size:0.85rem">'
+                    f'Page {_pt_page + 1} of {_pt_pages} · showing {_start}–{_end} of {_pt_total} scrips'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+            with pg3:
+                if st.button("Next ▶", key="pt_next",
+                             disabled=(_pt_page >= _pt_pages - 1), width="stretch"):
+                    st.session_state["pt_page"] += 1
+                    st.rerun()
+    else:
+        st.info("Price performance data unavailable — scrips may be BSE-only or not yet in Yahoo Finance.")
+
