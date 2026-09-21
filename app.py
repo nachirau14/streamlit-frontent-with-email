@@ -5,6 +5,7 @@ Mobile navigation: bottom tab bar using st.switch_page() so session
 state (authentication) is never lost on page change.
 
 Requires Streamlit >= 1.36 for st.navigation() / st.switch_page() support.
+###
 """
 import streamlit as st
 
@@ -18,7 +19,7 @@ st.set_page_config(
 from utils.auth import _show_login_form, logout, current_user
 from utils.ui import TEAL, GREY, BORDER
 
-# ── Global CSS ────────────────────────────────────────────────────────────────
+# ── Global CSS ────────────────────────────────────────────────────────────────st.
 st.markdown("""
 <style>
     footer { visibility: hidden; }
