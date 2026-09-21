@@ -163,13 +163,13 @@ MOBILE_PAGES = [
     ("📊", "Analytics", "pages/5_analytics.py"),
 ]
 
-try:
-    _bottom_ctx = st.bottom()
-except AttributeError:
-    # st.bottom() not available — use a regular container as fallback
-    _bottom_ctx = st.container()
+if hasattr(st, "bottom"):
+    _nav_ctx = st.bottom
+else:
+    # Fallback for Streamlit < 1.44 — render inline at bottom of page
+    _nav_ctx = st.container()
 
-with _bottom_ctx:
+with _nav_ctx:
     cols = st.columns(len(MOBILE_PAGES))
     for col, (icon, label, page_path) in zip(cols, MOBILE_PAGES):
         with col:
