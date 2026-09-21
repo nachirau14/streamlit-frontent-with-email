@@ -12,7 +12,7 @@ st.set_page_config(
     page_title="Portfolio XIRR Tracker",
     page_icon="📈",
     layout="wide",
-    initial_sidebar_state="collapsed",   # sidebar hidden by default on mobile
+    initial_sidebar_state="expanded",    # visible on desktop; mobile collapses it automatically
 )
 
 from utils.auth import _show_login_form, logout, current_user

@@ -691,7 +691,7 @@ with right:
     _PERIODS_OV = {"1D": "1d", "1W": "5d", "1M": "1mo", "1Y": "1y", "5Y": "5y"}
     _pv_key = "pv_period"
     if _pv_key not in st.session_state:
-        st.session_state[_pv_key] = "1y"
+        st.session_state[_pv_key] = "1d"
 
     pb_cols = st.columns(len(_PERIODS_OV))
     for _i, (_lbl, _code) in enumerate(_PERIODS_OV.items()):
