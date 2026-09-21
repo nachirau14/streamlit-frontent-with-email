@@ -55,42 +55,12 @@ st.markdown("""
     }
     .stDataFrame { border: 1px solid #E2E8F0; border-radius: 8px; }
 
-    /* Mobile: push content above the bottom nav bar */
+    /* Mobile improvements */
     @media (max-width: 640px) {
-        .block-container {
-            padding-bottom: 72px !important;
-        }
-        /* Make sidebar full-width when it opens */
         [data-testid="stSidebar"] {
             min-width: 80vw !important;
             max-width: 90vw !important;
         }
-    }
-
-    /* Style the bottom nav buttons */
-    div[data-testid="stBottom"] {
-        background: #FFFFFF;
-        border-top: 1px solid #E2E8F0;
-        box-shadow: 0 -2px 8px rgba(0,0,0,0.06);
-        padding: 4px 0 env(safe-area-inset-bottom, 4px);
-    }
-    div[data-testid="stBottom"] button {
-        border: none !important;
-        background: transparent !important;
-        color: #6B7280 !important;
-        font-size: 0.68rem !important;
-        padding: 4px 2px 2px !important;
-        border-radius: 8px !important;
-        height: auto !important;
-        min-height: 52px !important;
-        flex-direction: column !important;
-        gap: 1px !important;
-        line-height: 1.2 !important;
-    }
-    div[data-testid="stBottom"] button:hover,
-    div[data-testid="stBottom"] button:focus {
-        color: #00A88A !important;
-        background: #F0FDF4 !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -152,31 +122,61 @@ pg = st.navigation([
 pg.run()
 
 
-# ── Step 4: Mobile bottom navigation bar ─────────────────────────────────────
-# Uses st.bottom() (Streamlit >= 1.40) + st.switch_page() — preserves session
-# state on every tap. Falls back gracefully on older versions.
-MOBILE_PAGES = [
-    ("🏠", "Overview",  "pages/1_overview.py"),
-    ("🔍", "Scrip",     "pages/2_scrip_detail.py"),
-    ("📋", "Ledger",    "pages/3_trade_ledger.py"),
-    ("➕", "Add",       "pages/4_add_trade.py"),
-    ("📊", "Analytics", "pages/5_analytics.py"),
+# ── Step 4: Mobile navigation — floating popover button ──────────────────────
+# A single 📍 button fixed to the bottom-right corner opens a compact popover
+# with all pages. Uses st.popover (available since Streamlit 1.31) +
+# st.switch_page so session state is fully preserved on navigation.
+
+ALL_PAGES = [
+    ("🏠", "Portfolio Overview", "pages/1_overview.py"),
+    ("🔍", "Scrip Deep-Dive",    "pages/2_scrip_detail.py"),
+    ("📋", "Trade Ledger",       "pages/3_trade_ledger.py"),
+    ("➕", "Add Trade",          "pages/4_add_trade.py"),
+    ("📊", "Analytics",          "pages/5_analytics.py"),
+    ("📤", "Bulk Upload",        "pages/6_bulk_upload.py"),
+    ("✏️", "Edit Trades",        "pages/7_edit_trades.py"),
+    ("🏦", "Broker Config",      "pages/9_broker_config.py"),
+    ("📧", "Email Alerts",       "pages/10_email_config.py"),
 ]
 
-if hasattr(st, "bottom"):
-    _nav_ctx = st.bottom
-else:
-    # Fallback for Streamlit < 1.44 — render inline at bottom of page
-    _nav_ctx = st.container()
+# Inject a fixed-position wrapper so the popover trigger sits at bottom-right
+st.markdown("""
+<style>
+/* Anchor the popover trigger to bottom-right on all screen sizes */
+div[data-testid="stPopover"] {
+    position: fixed !important;
+    bottom: 20px !important;
+    right: 20px !important;
+    z-index: 9999 !important;
+}
+div[data-testid="stPopover"] > div > button {
+    width: 52px !important;
+    height: 52px !important;
+    border-radius: 50% !important;
+    font-size: 1.4rem !important;
+    padding: 0 !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.18) !important;
+    background: #00A88A !important;
+    color: white !important;
+    border: none !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+</style>
+""", unsafe_allow_html=True)
 
-with _nav_ctx:
-    cols = st.columns(len(MOBILE_PAGES))
-    for col, (icon, label, page_path) in zip(cols, MOBILE_PAGES):
-        with col:
-            if st.button(
-                f"{icon}\n{label}",
-                key=f"mobile_nav_{label}",
-                width="stretch",
-                help=label,
-            ):
-                st.switch_page(page_path)
+with st.popover("☰", use_container_width=False):
+    st.markdown(
+        '<div style="font-size:0.78rem;color:#6B7280;'
+        'text-transform:uppercase;letter-spacing:0.06em;'
+        'margin-bottom:8px">Navigate to</div>',
+        unsafe_allow_html=True,
+    )
+    for icon, label, page_path in ALL_PAGES:
+        if st.button(
+            f"{icon}  {label}",
+            key=f"pop_nav_{label}",
+            width="stretch",
+        ):
+            st.switch_page(page_path)
