@@ -685,78 +685,91 @@ with right:
     elif not hist:
         pass  # already shown info above
 
-    # ── Portfolio value chart (yfinance-backed) ───────────────────────────────
-    st.markdown("<div style='height:12px'/>", unsafe_allow_html=True)
+    # ── Portfolio value chart (yfinance-backed) — hidden by default ──────────
+    st.markdown("<div style='height:8px'/>", unsafe_allow_html=True)
 
-    _PERIODS_OV = {"1D": "1d", "1W": "5d", "1M": "1mo", "1Y": "1y", "5Y": "5y"}
-    _pv_key = "pv_period"
-    if _pv_key not in st.session_state:
-        st.session_state[_pv_key] = "1d"
+    _show_key = "show_pv_chart"
+    if _show_key not in st.session_state:
+        st.session_state[_show_key] = False
 
-    pb_cols = st.columns(len(_PERIODS_OV))
-    for _i, (_lbl, _code) in enumerate(_PERIODS_OV.items()):
-        with pb_cols[_i]:
-            _active = st.session_state[_pv_key] == _code
-            if st.button(
-                _lbl, key=f"ov_period_{_code}",
-                type="primary" if _active else "secondary",
-                width="stretch",
-            ):
-                st.session_state[_pv_key] = _code
-                st.rerun()
+    # Toggle button — compact, sits below the XIRR trend
+    if st.button(
+        "📈 Show Price History" if not st.session_state[_show_key] else "Hide Price History",
+        key="toggle_pv_chart",
+        width="content",
+    ):
+        st.session_state[_show_key] = not st.session_state[_show_key]
+        st.rerun()
 
-    _sel_period = st.session_state[_pv_key]
+    if st.session_state[_show_key]:
+        _PERIODS_OV = {"1D": "1d", "1W": "5d", "1M": "1mo", "1Y": "1y", "5Y": "5y"}
+        _pv_key = "pv_period"
+        if _pv_key not in st.session_state:
+            st.session_state[_pv_key] = "1d"
 
-    # Build holdings: (symbol, qty) from filtered compute_xirr results
-    _holdings_pairs: list[tuple[str, float]] = []
-    for _row in all_rows:
-        _sym = _row.get("Symbol", "")
-        _qty = float(_row.get("Holdings") or 0)
-        if _sym and _qty > 0 and _sym in filtered_symbols:
-            _holdings_pairs.append((_sym, _qty))
+        pb_cols = st.columns(len(_PERIODS_OV))
+        for _i, (_lbl, _code) in enumerate(_PERIODS_OV.items()):
+            with pb_cols[_i]:
+                _active = st.session_state[_pv_key] == _code
+                if st.button(
+                    _lbl, key=f"ov_period_{_code}",
+                    type="primary" if _active else "secondary",
+                    width="stretch",
+                ):
+                    st.session_state[_pv_key] = _code
+                    st.rerun()
 
-    if _holdings_pairs:
-        _chart_title = (
-            f"{filter_label} Portfolio Value"
-            if is_filtered and f_count <= 3
-            else "Portfolio Value"
-        )
-        with st.spinner(f"Loading {_sel_period} price history…"):
-            _pv_df = _fetch_portfolio_history(
-                tuple(_holdings_pairs), _sel_period
+        _sel_period = st.session_state[_pv_key]
+
+        # Build holdings: (symbol, qty) from filtered compute_xirr results
+        _holdings_pairs: list[tuple[str, float]] = []
+        for _row in all_rows:
+            _sym = _row.get("Symbol", "")
+            _qty = float(_row.get("Holdings") or 0)
+            if _sym and _qty > 0 and _sym in filtered_symbols:
+                _holdings_pairs.append((_sym, _qty))
+
+        if _holdings_pairs:
+            _chart_title = (
+                f"{filter_label} Portfolio Value"
+                if is_filtered and f_count <= 3
+                else "Portfolio Value"
             )
-        if _pv_df.empty:
-            st.caption("Price history unavailable — scrips may be BSE-only or delisted.")
+            with st.spinner(f"Loading {_sel_period} price history…"):
+                _pv_df = _fetch_portfolio_history(
+                    tuple(_holdings_pairs), _sel_period
+                )
+            if _pv_df.empty:
+                st.caption("Price history unavailable — scrips may be BSE-only or delisted.")
+            else:
+                st.plotly_chart(
+                    _portfolio_value_chart(_pv_df, _chart_title, _sel_period),
+                    width="stretch",
+                    config={"displayModeBar": False},
+                )
+                _pv_first = float(_pv_df["Value"].iloc[0])
+                _pv_last  = float(_pv_df["Value"].iloc[-1])
+                _pv_high  = float(_pv_df["Value"].max())
+                _pv_low   = float(_pv_df["Value"].min())
+                _pv_chg   = _pv_last - _pv_first
+                _pv_pct   = (_pv_chg / _pv_first * 100) if _pv_first else 0
+                _pv_col   = "#00A88A" if _pv_chg >= 0 else "#E53E3E"
+                st.markdown(
+                    f'<div style="display:flex;gap:16px;flex-wrap:wrap;'
+                    f'font-size:0.82rem;padding:4px 0 8px">'
+                    f'<span style="color:{GREY}">Open</span> <strong>{fmt_inr(_pv_first)}</strong>'
+                    f'&nbsp;&nbsp;'
+                    f'<span style="color:{GREY}">Change</span> '
+                    f'<strong style="color:{_pv_col}">{_pv_chg:+,.0f} ({_pv_pct:+.2f}%)</strong>'
+                    f'&nbsp;&nbsp;'
+                    f'<span style="color:#00A88A">High {fmt_inr(_pv_high)}</span>'
+                    f'&nbsp;&nbsp;'
+                    f'<span style="color:#E53E3E">Low {fmt_inr(_pv_low)}</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
         else:
-            st.plotly_chart(
-                _portfolio_value_chart(_pv_df, _chart_title, _sel_period),
-                width="stretch",
-                config={"displayModeBar": False},
-            )
-            # Stats
-            _pv_first = float(_pv_df["Value"].iloc[0])
-            _pv_last  = float(_pv_df["Value"].iloc[-1])
-            _pv_high  = float(_pv_df["Value"].max())
-            _pv_low   = float(_pv_df["Value"].min())
-            _pv_chg   = _pv_last - _pv_first
-            _pv_pct   = (_pv_chg / _pv_first * 100) if _pv_first else 0
-            _pv_col   = "#00A88A" if _pv_chg >= 0 else "#E53E3E"
-            st.markdown(
-                f'<div style="display:flex;gap:16px;flex-wrap:wrap;'
-                f'font-size:0.82rem;padding:4px 0 8px">'
-                f'<span style="color:{GREY}">Open</span> <strong>{fmt_inr(_pv_first)}</strong>'
-                f'&nbsp;&nbsp;'
-                f'<span style="color:{GREY}">Change</span> '
-                f'<strong style="color:{_pv_col}">{_pv_chg:+,.0f} ({_pv_pct:+.2f}%)</strong>'
-                f'&nbsp;&nbsp;'
-                f'<span style="color:#00A88A">High {fmt_inr(_pv_high)}</span>'
-                f'&nbsp;&nbsp;'
-                f'<span style="color:#E53E3E">Low {fmt_inr(_pv_low)}</span>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-    else:
-        st.caption("No holdings with current value — add trades and recalculate.")
+            st.caption("No holdings with current value — add trades and recalculate.")
 
 # ── Scrip table ───────────────────────────────────────────────────────────────
 section_header(
@@ -892,6 +905,26 @@ _pt_symbols = tuple(
 )
 
 if _pt_symbols:
+    _show_perf_key = "show_price_perf"
+    if _show_perf_key not in st.session_state:
+        st.session_state[_show_perf_key] = False
+
+    if st.button(
+        "📊 Show Price Performance Table" if not st.session_state[_show_perf_key]
+        else "Hide Price Performance Table",
+        key="toggle_price_perf",
+        width="content",
+    ):
+        st.session_state[_show_perf_key] = not st.session_state[_show_perf_key]
+        st.rerun()
+
+    if not st.session_state[_show_perf_key]:
+        st.caption(
+            "Shows 52W high/low and 1W/1M/3M/6M/1Y % change for each holding. "
+            "Fetches from Yahoo Finance — may take 10–30 seconds."
+        )
+
+if _pt_symbols and st.session_state.get("show_price_perf", False):
     # Pagination — 25 per page
     _PT_PAGE_SIZE = 25
     _pt_total     = len(_pt_symbols)
@@ -1020,4 +1053,5 @@ if _pt_symbols:
                     st.rerun()
     else:
         st.info("Price performance data unavailable — scrips may be BSE-only or not yet in Yahoo Finance.")
+
 
