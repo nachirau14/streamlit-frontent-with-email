@@ -5,7 +5,6 @@ Mobile navigation: bottom tab bar using st.switch_page() so session
 state (authentication) is never lost on page change.
 
 Requires Streamlit >= 1.36 for st.navigation() / st.switch_page() support.
-###
 """
 import streamlit as st
 
@@ -19,7 +18,7 @@ st.set_page_config(
 from utils.auth import _show_login_form, logout, current_user
 from utils.ui import TEAL, GREY, BORDER
 
-# ── Global CSS ────────────────────────────────────────────────────────────────st.
+# ── Global CSS ────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
     footer { visibility: hidden; }
@@ -154,8 +153,8 @@ pg.run()
 
 
 # ── Step 4: Mobile bottom navigation bar ─────────────────────────────────────
-# Uses st.bottom() + st.switch_page() — preserves session state on every tap.
-# Only the 5 most-used pages appear here; the rest are in the sidebar.
+# Uses st.bottom() (Streamlit >= 1.40) + st.switch_page() — preserves session
+# state on every tap. Falls back gracefully on older versions.
 MOBILE_PAGES = [
     ("🏠", "Overview",  "pages/1_overview.py"),
     ("🔍", "Scrip",     "pages/2_scrip_detail.py"),
@@ -164,7 +163,13 @@ MOBILE_PAGES = [
     ("📊", "Analytics", "pages/5_analytics.py"),
 ]
 
-with st.bottom():
+try:
+    _bottom_ctx = st.bottom()
+except AttributeError:
+    # st.bottom() not available — use a regular container as fallback
+    _bottom_ctx = st.container()
+
+with _bottom_ctx:
     cols = st.columns(len(MOBILE_PAGES))
     for col, (icon, label, page_path) in zip(cols, MOBILE_PAGES):
         with col:
