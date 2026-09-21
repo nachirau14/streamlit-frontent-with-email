@@ -1,10 +1,10 @@
 """
-app.py  —  Entry point and auth gate for the Portfolio XIRR Dashboard.
+app.py — Entry point and auth gate for the Portfolio XIRR Dashboard.
 
-Navigation uses st.switch_page() — never plain href links — so session
-state (including authentication) is preserved across page changes.
+Mobile navigation: bottom tab bar using st.switch_page() so session
+state (authentication) is never lost on page change.
 
-Requires Streamlit >= 1.36 for st.navigation() support.
+Requires Streamlit >= 1.36 for st.navigation() / st.switch_page() support.
 """
 import streamlit as st
 
@@ -12,7 +12,7 @@ st.set_page_config(
     page_title="Portfolio XIRR Tracker",
     page_icon="📈",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",   # sidebar hidden by default on mobile
 )
 
 from utils.auth import _show_login_form, logout, current_user
@@ -24,7 +24,7 @@ st.markdown("""
     footer { visibility: hidden; }
     header { visibility: hidden; }
 
-    /* Keep hamburger/sidebar toggle visible */
+    /* Keep hamburger visible */
     [data-testid="collapsedControl"] {
         display: flex !important;
         visibility: visible !important;
@@ -45,7 +45,6 @@ st.markdown("""
         border-bottom: 2px solid #00A88A;
     }
     [data-testid="stMetricDelta"] { font-size: 0.8rem; }
-
     [data-testid="stSidebar"] {
         background: #F4F6F8;
         border-right: 1px solid #E2E8F0;
@@ -56,16 +55,42 @@ st.markdown("""
     }
     .stDataFrame { border: 1px solid #E2E8F0; border-radius: 8px; }
 
-    /* Mobile improvements */
+    /* Mobile: push content above the bottom nav bar */
     @media (max-width: 640px) {
-        [data-testid="collapsedControl"] button {
-            width: 44px !important;
-            height: 44px !important;
+        .block-container {
+            padding-bottom: 72px !important;
         }
+        /* Make sidebar full-width when it opens */
         [data-testid="stSidebar"] {
             min-width: 80vw !important;
             max-width: 90vw !important;
         }
+    }
+
+    /* Style the bottom nav buttons */
+    div[data-testid="stBottom"] {
+        background: #FFFFFF;
+        border-top: 1px solid #E2E8F0;
+        box-shadow: 0 -2px 8px rgba(0,0,0,0.06);
+        padding: 4px 0 env(safe-area-inset-bottom, 4px);
+    }
+    div[data-testid="stBottom"] button {
+        border: none !important;
+        background: transparent !important;
+        color: #6B7280 !important;
+        font-size: 0.68rem !important;
+        padding: 4px 2px 2px !important;
+        border-radius: 8px !important;
+        height: auto !important;
+        min-height: 52px !important;
+        flex-direction: column !important;
+        gap: 1px !important;
+        line-height: 1.2 !important;
+    }
+    div[data-testid="stBottom"] button:hover,
+    div[data-testid="stBottom"] button:focus {
+        color: #00A88A !important;
+        background: #F0FDF4 !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -77,7 +102,7 @@ if not st.session_state.get("authenticated", False):
     st.stop()
 
 
-# ── Step 2: Authenticated — build navigation and run ─────────────────────────
+# ── Step 2: Authenticated — sidebar nav ──────────────────────────────────────
 from datetime import date
 
 with st.sidebar:
@@ -111,7 +136,7 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-# ── Register all pages ────────────────────────────────────────────────────────
+# ── Step 3: Register pages ────────────────────────────────────────────────────
 pg = st.navigation([
     st.Page("pages/1_overview.py",         title="Portfolio Overview", icon="🏠"),
     st.Page("pages/2_scrip_detail.py",     title="Scrip Deep-Dive",    icon="🔍"),
@@ -125,3 +150,27 @@ pg = st.navigation([
     st.Page("pages/0_debug_connection.py", title="Connection Debug",   icon="🔧"),
 ])
 pg.run()
+
+
+# ── Step 4: Mobile bottom navigation bar ─────────────────────────────────────
+# Uses st.bottom() + st.switch_page() — preserves session state on every tap.
+# Only the 5 most-used pages appear here; the rest are in the sidebar.
+MOBILE_PAGES = [
+    ("🏠", "Overview",  "pages/1_overview.py"),
+    ("🔍", "Scrip",     "pages/2_scrip_detail.py"),
+    ("📋", "Ledger",    "pages/3_trade_ledger.py"),
+    ("➕", "Add",       "pages/4_add_trade.py"),
+    ("📊", "Analytics", "pages/5_analytics.py"),
+]
+
+with st.bottom():
+    cols = st.columns(len(MOBILE_PAGES))
+    for col, (icon, label, page_path) in zip(cols, MOBILE_PAGES):
+        with col:
+            if st.button(
+                f"{icon}\n{label}",
+                key=f"mobile_nav_{label}",
+                width="stretch",
+                help=label,
+            ):
+                st.switch_page(page_path)
