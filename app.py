@@ -1,9 +1,8 @@
 """
 app.py  —  Entry point and auth gate for the Portfolio XIRR Dashboard.
 
-This file does two things only:
-  1. Shows the login form if the user is not authenticated.
-  2. Once authenticated, registers all pages via st.navigation() and runs them.
+Navigation uses st.switch_page() — never plain href links — so session
+state (including authentication) is preserved across page changes.
 
 Requires Streamlit >= 1.36 for st.navigation() support.
 """
@@ -22,11 +21,10 @@ from utils.ui import TEAL, GREY, BORDER
 # ── Global CSS ────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-    /* Hide Streamlit footer and header branding — but NOT the sidebar toggle */
     footer { visibility: hidden; }
     header { visibility: hidden; }
 
-    /* Keep hamburger visible on mobile so users can open the sidebar */
+    /* Keep hamburger/sidebar toggle visible */
     [data-testid="collapsedControl"] {
         display: flex !important;
         visibility: visible !important;
@@ -48,7 +46,6 @@ st.markdown("""
     }
     [data-testid="stMetricDelta"] { font-size: 0.8rem; }
 
-    /* Sidebar */
     [data-testid="stSidebar"] {
         background: #F4F6F8;
         border-right: 1px solid #E2E8F0;
@@ -59,81 +56,18 @@ st.markdown("""
     }
     .stDataFrame { border: 1px solid #E2E8F0; border-radius: 8px; }
 
-    /* ── Mobile nav strip ───────────────────────────────────────────────────
-       Shown only on narrow screens (≤ 640 px).
-       Gives one-tap access to the four most-used pages without opening the
-       sidebar. Sits at the bottom of the viewport (safe-area aware).       */
-    .mobile-nav {
-        display: none;
-    }
+    /* Mobile improvements */
     @media (max-width: 640px) {
-        /* Push page content up so it isn't hidden behind the nav strip */
-        .block-container {
-            padding-bottom: calc(68px + env(safe-area-inset-bottom, 0px)) !important;
-        }
-        .mobile-nav {
-            display: flex;
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            z-index: 9999;
-            background: #FFFFFF;
-            border-top: 1px solid #E2E8F0;
-            padding-bottom: env(safe-area-inset-bottom, 0px);
-            justify-content: space-around;
-            align-items: center;
-            height: 60px;
-            box-shadow: 0 -2px 8px rgba(0,0,0,0.06);
-        }
-        .mobile-nav a {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            font-size: 0.62rem;
-            color: #6B7280;
-            text-decoration: none;
-            gap: 2px;
-            flex: 1;
-            padding: 6px 2px;
-        }
-        .mobile-nav a span.icon { font-size: 1.3rem; line-height: 1; }
-        .mobile-nav a:hover,
-        .mobile-nav a:active { color: #00A88A; }
-
-        /* Enlarge the sidebar hamburger so it's easy to tap */
         [data-testid="collapsedControl"] button {
             width: 44px !important;
             height: 44px !important;
         }
-
-        /* Sidebar full-width overlay on mobile */
         [data-testid="stSidebar"] {
             min-width: 80vw !important;
             max-width: 90vw !important;
         }
     }
 </style>
-
-<!-- Bottom mobile navigation strip — visible only on narrow screens -->
-<div class="mobile-nav" aria-label="Mobile navigation">
-    <a href="/" title="Overview">
-        <span class="icon">🏠</span>Overview
-    </a>
-    <a href="/Scrip_Deep-Dive" title="Scrip">
-        <span class="icon">🔍</span>Scrip
-    </a>
-    <a href="/Trade_Ledger" title="Ledger">
-        <span class="icon">📋</span>Ledger
-    </a>
-    <a href="/Add_Trade" title="Add">
-        <span class="icon">➕</span>Add
-    </a>
-    <a href="/Analytics" title="Analytics">
-        <span class="icon">📊</span>Analytics
-    </a>
-</div>
 """, unsafe_allow_html=True)
 
 
@@ -147,13 +81,13 @@ if not st.session_state.get("authenticated", False):
 from datetime import date
 
 with st.sidebar:
-    st.markdown("""
-    <div style="padding:12px 0 16px 0">
-        <div style="font-size:1.3rem;font-weight:800;color:#00A88A">📈 XIRR Tracker</div>
-        <div style="font-size:0.78rem;color:#6B7280;margin-top:2px">Indian Equity Portfolio</div>
-    </div>
-    """, unsafe_allow_html=True)
-
+    st.markdown(
+        '<div style="padding:12px 0 16px 0">'
+        '<div style="font-size:1.3rem;font-weight:800;color:#00A88A">📈 XIRR Tracker</div>'
+        '<div style="font-size:0.78rem;color:#6B7280;margin-top:2px">Indian Equity Portfolio</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
     st.markdown("---")
 
     if st.button("🔄  Refresh Data", width='stretch'):
@@ -177,17 +111,17 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-# Register all pages
+# ── Register all pages ────────────────────────────────────────────────────────
 pg = st.navigation([
-    st.Page("pages/1_overview.py",        title="Portfolio Overview", icon="🏠"),
-    st.Page("pages/2_scrip_detail.py",    title="Scrip Deep-Dive",    icon="🔍"),
-    st.Page("pages/3_trade_ledger.py",    title="Trade Ledger",       icon="📋"),
-    st.Page("pages/4_add_trade.py",       title="Add Trade",          icon="➕"),
-    st.Page("pages/5_analytics.py",       title="Analytics",          icon="📊"),
-    st.Page("pages/6_bulk_upload.py",     title="Bulk Upload",        icon="📤"),
-    st.Page("pages/7_edit_trades.py",     title="Edit Trades",        icon="✏️"),
-    st.Page("pages/9_broker_config.py",   title="Broker Config",      icon="🏦"),
-    st.Page("pages/10_email_config.py",   title="Email Alerts",       icon="📧"),
-    st.Page("pages/0_debug_connection.py",title="Connection Debug",   icon="🔧"),
+    st.Page("pages/1_overview.py",         title="Portfolio Overview", icon="🏠"),
+    st.Page("pages/2_scrip_detail.py",     title="Scrip Deep-Dive",    icon="🔍"),
+    st.Page("pages/3_trade_ledger.py",     title="Trade Ledger",       icon="📋"),
+    st.Page("pages/4_add_trade.py",        title="Add Trade",          icon="➕"),
+    st.Page("pages/5_analytics.py",        title="Analytics",          icon="📊"),
+    st.Page("pages/6_bulk_upload.py",      title="Bulk Upload",        icon="📤"),
+    st.Page("pages/7_edit_trades.py",      title="Edit Trades",        icon="✏️"),
+    st.Page("pages/9_broker_config.py",    title="Broker Config",      icon="🏦"),
+    st.Page("pages/10_email_config.py",    title="Email Alerts",       icon="📧"),
+    st.Page("pages/0_debug_connection.py", title="Connection Debug",   icon="🔧"),
 ])
 pg.run()
