@@ -813,7 +813,20 @@ styled = (
     .hide(axis="index")
 )
 
-st.dataframe(styled, width='stretch', height=420)
+st.dataframe(
+    styled,
+    width="stretch",
+    height=420,
+    hide_index=True,
+    column_config={
+        # Pin Symbol to the left so it stays visible while scrolling right on mobile
+        "Symbol": st.column_config.TextColumn(
+            "Symbol",
+            pinned=True,
+            width="small",
+        ),
+    },
+)
 
 # Download
 csv = display_df.to_csv(index=False)
