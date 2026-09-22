@@ -783,9 +783,9 @@ def colour_xirr(val):
     return f"color: {TEAL}" if val >= 0 else f"color: {RED}"
 
 # Build display df — Company right after Symbol
-_col_order = ["Symbol", "Company", "XIRR %", "Current Value", "Invested",
-              "Realised", "Dividends", "Holdings", "Face Value (₹)", "LMP (₹)",
-              "Bonus Shares", "Rights Shares", "As Of", "Broker", "Sector"]
+_col_order = ["Symbol", "Company", "XIRR %", "Realised", "Current Value",
+              "Invested", "Dividends", "Holdings", "LMP (₹)", "Broker",
+              "Sector", "Face Value (₹)", "Bonus Shares", "Rights Shares", "As Of"]
 _base    = df.drop(columns=["_snap"])
 _ordered = [c for c in _col_order if c in _base.columns]
 _extra   = [c for c in _base.columns if c not in _ordered]
